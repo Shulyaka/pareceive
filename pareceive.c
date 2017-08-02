@@ -921,7 +921,7 @@ int main(int argc, char *argv[])
 	pa_context_set_state_callback(context, context_state_callback, NULL);
 
 	/* Connect the context */
-	if (pa_context_connect(context, server, 0, NULL) < 0)
+	if (pa_context_connect(context, server, PA_CONTEXT_NOFLAGS, NULL) < 0)
 	{
 		fprintf(stderr, "pa_context_connect() failed: %s\n", pa_strerror(pa_context_errno(context)));
 		goto quit;
