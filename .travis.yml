@@ -12,6 +12,7 @@ matrix:
             - gcc-6
             - libpulse-dev
             - libavcodec-dev
+            - libavformat-dev
       env:
         - COMPILER=gcc-6
     - compiler: clang
@@ -24,6 +25,7 @@ matrix:
             - llvm-3.9-dev
             - libpulse-dev
             - libavcodec-dev
+            - libavformat-dev
       env:
         - COMPILER=clang-3.9
 env:
