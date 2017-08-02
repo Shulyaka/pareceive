@@ -1,5 +1,5 @@
 language: c
-dist: precise
+dist: trusty
 script: make
 matrix:
   include:
@@ -8,6 +8,7 @@ matrix:
         apt:
           sources:
             - ubuntu-toolchain-r-test
+            - jonathonf/ffmpeg-3
           packages:
             - gcc-6
             - libpulse-dev
@@ -21,6 +22,7 @@ matrix:
         apt:
           sources:
             - ubuntu-toolchain-r-test
+            - jonathonf/ffmpeg-3
           packages:
             - clang-3.9
             - llvm-3.9-dev
