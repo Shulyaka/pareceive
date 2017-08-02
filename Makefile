@@ -1,10 +1,23 @@
+ifeq ($(DEBUG),Y)
+	CFLAGS+=-ggdb -O0 -Wall -DDEBUG
+else
+	CFLAGS+=-Wall
+endif
+
+LDFLAGS+=-lpulse -lavformat -lavutil -lavcodec -lswresample
+
+.PHONY: clean install all
+
 all: pareceive
 
 pareceive: pareceive.o
-	gcc -o pareceive pareceive.o -lpulse -lavformat -lavutil -lavcodec -lswresample
+	${CC} -o pareceive pareceive.o ${LDFLAGS}
 
 pareceive.o: pareceive.c
-	gcc -c pareceive.c -Wall -ggdb -I/usr/include/ffmpeg
+	${CC} -c pareceive.c -I/usr/include/ffmpeg ${CFLAGS}
 
 clean:
 	rm -f *.o pareceive
+
+install: pareceive
+	cp pareceive /usr/local/bin/
