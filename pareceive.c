@@ -260,7 +260,8 @@ void map_channel_layout(pa_channel_map* channel_map, uint64_t channel_layout)
 	pa_channel_map_init(channel_map);
 	channel_map->channels = av_get_channel_layout_nb_channels(channel_layout);
 
-	for(int i = 0; i < channel_map->channels; i++)
+	int i;
+	for(i = 0; i < channel_map->channels; i++)
 	{
 		switch(av_channel_layout_extract_channel(channel_layout, i))
 		{
@@ -620,7 +621,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 				return;
 			}
 
-			fprintf(stderr, "block_size=%d\n", block_size);
+			fprintf(stderr, "block_size=%zu\n", block_size);
 	
 			prevextralength = inbuffer_length;
 
