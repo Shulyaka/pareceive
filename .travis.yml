@@ -1,0 +1,36 @@
+language: c
+dist: trusty
+script: make
+matrix:
+  include:
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - gcc-6
+            - libpulse-dev
+            - libavcodec-dev
+      env:
+        - COMPILER=gcc-6
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - clang-3.9
+            - llvm-3.9-dev
+            - libpulse-dev
+            - libavcodec-dev
+      env:
+        - COMPILER=clang-3.9
+env:
+  global:
+    - CFLAGS="$CFLAGS${CFLAGS:+ }-Werror"
+    - CXXFLAGS="$CXXFLAGS${CXXFLAGS:+ }-Werror"
+before_install:
+  - export CXX="$COMPILER"
+  - export CC="$COMPILER"
+- ${CXX} --version
