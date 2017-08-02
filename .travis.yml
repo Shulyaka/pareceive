@@ -13,6 +13,7 @@ matrix:
             - libpulse-dev
             - libavcodec-dev
             - libavformat-dev
+            - libswresample-dev
       env:
         - COMPILER=gcc-6
     - compiler: clang
@@ -26,6 +27,7 @@ matrix:
             - libpulse-dev
             - libavcodec-dev
             - libavformat-dev
+            - libswresample-dev
       env:
         - COMPILER=clang-3.9
 env:
