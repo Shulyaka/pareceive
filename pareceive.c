@@ -3,7 +3,7 @@
 
 #include <pulse/pulseaudio.h>
 
-#include <libavformat/avio.h>
+#include "libavformat/avio.h"
 #include "libavformat/avformat.h"
 #include "libswresample/swresample.h"
 
