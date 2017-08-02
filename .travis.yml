@@ -34,3 +34,4 @@ before_install:
   - export CXX="$COMPILER"
   - export CC="$COMPILER"
   - ${CXX} --version
+  - find /usr/include -name avio.h
