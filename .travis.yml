@@ -33,4 +33,4 @@ env:
 before_install:
   - export CXX="$COMPILER"
   - export CC="$COMPILER"
-- ${CXX} --version
+  - ${CXX} --version
