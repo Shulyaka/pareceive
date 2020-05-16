@@ -23,6 +23,8 @@ static size_t inbuffer_length = 0, inbuffer_index = 0;
 static void *outbuffer = NULL;
 static size_t outbuffer_length = 0, outbuffer_index = 0;
 
+uint32_t tlength = 0;
+
 static int verbose = 1;
 
 static pa_sample_spec sample_spec =
@@ -33,7 +35,7 @@ static pa_sample_spec sample_spec =
 };
 
 static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH | PA_STREAM_ADJUST_LATENCY;
-static pa_stream_flags_t outflags = 0;
+static pa_stream_flags_t outflags = PA_STREAM_ADJUST_LATENCY;
 
 enum state {NOSIGNAL, PCM, IEC61937} state=NOSIGNAL;
 
@@ -354,6 +356,7 @@ void open_output_stream(void)
 	int r;
 	pa_sample_spec out_sample_spec;
 	pa_channel_map out_channel_map;
+	pa_buffer_attr buffer_attr;
 
 	assert(context);
 	assert(!outstream);
@@ -364,6 +367,7 @@ void open_output_stream(void)
 		out_sample_spec.rate = avcodeccontext->sample_rate;
 		out_sample_spec.channels = avcodeccontext->channels;
 		map_channel_layout(&out_channel_map, avcodeccontext->channel_layout);
+		tlength = avformatcontext->pb->buffer_size / 4 * out_bytes_per_sample * 2;
 	}
 	else
 	{
@@ -372,7 +376,14 @@ void open_output_stream(void)
 		out_sample_spec.rate = in_sample_spec->rate;
 		out_sample_spec.channels = in_sample_spec->channels;
 		memcpy(&out_channel_map, pa_stream_get_channel_map(instream), sizeof(pa_channel_map));
+		tlength = pa_stream_get_buffer_attr(instream)->fragsize;
 	}
+
+	buffer_attr.fragsize = (uint32_t) -1;
+	buffer_attr.maxlength = (uint32_t) -1;
+	buffer_attr.minreq = (uint32_t) -1;
+	buffer_attr.prebuf = (uint32_t) -1;
+	buffer_attr.tlength = tlength;
 
 	if (!(outstream = pa_stream_new(context, "pareceive output stream", &out_sample_spec, &out_channel_map)))
 	{
@@ -391,7 +402,7 @@ void open_output_stream(void)
 	pa_stream_set_event_callback(outstream, stream_event_callback, NULL);
 	pa_stream_set_buffer_attr_callback(outstream, stream_buffer_attr_callback, NULL);
 
-	if ((r = pa_stream_connect_playback(outstream, outdevice, NULL, outflags, NULL, NULL)) < 0)
+	if ((r = pa_stream_connect_playback(outstream, outdevice, &buffer_attr, outflags, NULL, NULL)) < 0)
 	{
 		fprintf(stderr, "pa_stream_connect_playback() failed: %s\n", pa_strerror(pa_context_errno(context)));
 		quit(1);
@@ -758,11 +769,17 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			return;
 		}
 
-		if(fcount)
+		if(fcount && pa_stream_get_state(outstream) == PA_STREAM_READY)
 		{
-			if(pa_stream_get_state(outstream) == PA_STREAM_READY)
-				do_stream_write(outstream, pa_stream_writable_size(outstream));
-				//do_stream_write(outstream, outbuffer_length);
+			if(tlength && outbuffer_length > tlength*2)
+			{
+				printf("Outbuffer is too long (%lu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
+				outbuffer_index += outbuffer_length - tlength;
+				outbuffer_length = tlength;
+				printf("outbuffer_length = %lu\n", outbuffer_length);
+			}
+
+			do_stream_write(outstream, pa_stream_writable_size(outstream));
 		}
 	}
 
