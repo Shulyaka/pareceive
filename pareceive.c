@@ -15,6 +15,8 @@ static pa_stream *instream = NULL;
 static pa_stream *outstream = NULL;
 static pa_mainloop_api *mainloop_api = NULL;
 
+#define SILENCE_CHECK_SIZE 12288
+
 static void *inbuffer = NULL;
 static size_t inbuffer_length = 0, inbuffer_index = 0;
 
@@ -30,7 +32,7 @@ static pa_sample_spec sample_spec =
 	.channels = 2
 };
 
-static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH;
+static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH | PA_STREAM_ADJUST_LATENCY;
 static pa_stream_flags_t outflags = 0;
 
 enum state {NOSIGNAL, PCM, IEC61937} state=NOSIGNAL;
@@ -68,9 +70,9 @@ static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *use
 	else
 	{
 		if(s==instream)
-			fprintf(stderr, "New buffer metrics: maxlength=%u, fragsize=%u\n", a->maxlength, a->fragsize);
+			fprintf(stderr, "New inbuffer metrics: maxlength=%u, fragsize=%u\n", a->maxlength, a->fragsize);
 		else
-			fprintf(stderr, "New buffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u\n", a->maxlength, a->tlength, a->prebuf, a->minreq);
+			fprintf(stderr, "New outbuffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u\n", a->maxlength, a->tlength, a->prebuf, a->minreq);
 	}
 }
 
@@ -109,7 +111,6 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 					pa_stream_get_device_name(s),
 					pa_stream_get_device_index(s),
 					pa_stream_is_suspended(s) ? "" : "not ");
-
 			break;
 
 		case PA_STREAM_FAILED:
@@ -512,7 +513,7 @@ void set_state(enum state newstate)
 	switch(newstate)
 	{
 		case NOSIGNAL:
-			set_instream_fragsize((uint32_t) -1);
+			set_instream_fragsize(SILENCE_CHECK_SIZE);
 			break;
 		case PCM:
 			fprintf(stderr, "Playing PCM\n");
@@ -680,7 +681,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			pkt.data = NULL;
 			pkt.size = 0;
 
-			set_instream_fragsize(block_size);
+			set_instream_fragsize(block_size * 2);
 
 			open_output_stream();
 
@@ -808,6 +809,7 @@ static void context_state_callback(pa_context *c, void *userdata)
 		case PA_CONTEXT_READY:
 		{
 			int r;
+			pa_buffer_attr buffer_attr;
 
 			assert(c);
 			assert(!instream);
@@ -830,7 +832,13 @@ static void context_state_callback(pa_context *c, void *userdata)
 			pa_stream_set_event_callback(instream, stream_event_callback, NULL);
 			pa_stream_set_buffer_attr_callback(instream, stream_buffer_attr_callback, NULL);
 
-			if ((r = pa_stream_connect_record(instream, indevice, NULL, inflags)) < 0)
+			buffer_attr.fragsize = SILENCE_CHECK_SIZE;
+			buffer_attr.maxlength = (uint32_t) -1;
+			buffer_attr.minreq = (uint32_t) -1;
+			buffer_attr.prebuf = (uint32_t) -1;
+			buffer_attr.tlength = (uint32_t) -1;
+
+			if ((r = pa_stream_connect_record(instream, indevice, &buffer_attr, inflags)) < 0)
 			{
 				fprintf(stderr, "pa_stream_connect_record() failed: %s\n", pa_strerror(pa_context_errno(c)));
 				goto fail;
