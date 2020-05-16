@@ -24,6 +24,7 @@ static void *outbuffer = NULL;
 static size_t outbuffer_length = 0, outbuffer_index = 0;
 
 uint32_t tlength = 0;
+double trate = 0;
 
 static int verbose = 1;
 
@@ -35,7 +36,7 @@ static pa_sample_spec sample_spec =
 };
 
 static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH | PA_STREAM_ADJUST_LATENCY;
-static pa_stream_flags_t outflags = PA_STREAM_ADJUST_LATENCY;
+static pa_stream_flags_t outflags = PA_STREAM_ADJUST_LATENCY | PA_STREAM_VARIABLE_RATE;
 
 enum state {NOSIGNAL, PCM, IEC61937} state=NOSIGNAL;
 
@@ -75,6 +76,41 @@ static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *use
 			fprintf(stderr, "New inbuffer metrics: maxlength=%u, fragsize=%u\n", a->maxlength, a->fragsize);
 		else
 			fprintf(stderr, "New outbuffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u\n", a->maxlength, a->tlength, a->prebuf, a->minreq);
+	}
+}
+
+static void stream_update_sample_rate_callback(pa_stream *s, int success, void *userdata)
+{
+	assert(s);
+
+	if(!success)
+	{
+		fprintf(stderr, "Failed to set sample rate: %s\n", pa_strerror(pa_context_errno(pa_stream_get_context(s))));
+		quit(1);
+		return;
+	}
+
+	printf("Sample rate changed to %u\n", pa_stream_get_sample_spec(s)->rate);
+}
+
+static void outstream_update_sample_rate(uint32_t rate)
+{
+	static uint32_t rate_old = 0;
+
+	if(!rate)
+	{
+		rate_old = 0;
+		return;
+	}
+
+	if(rate_old != rate)
+	{
+		rate_old = rate;
+		pa_operation *op = pa_stream_update_sample_rate(outstream, rate, stream_update_sample_rate_callback, NULL);
+		if(op != NULL)
+			pa_operation_unref(op);
+		else
+			printf("pa_stream_update_sample_rate(%u): %s\n", rate, pa_strerror(pa_context_errno(pa_stream_get_context(outstream))));
 	}
 }
 
@@ -142,8 +178,10 @@ static void stream_underflow_callback(pa_stream *s, void *userdata)
 	if (verbose)
 	{
 		fprintf(stderr, "Stream underrun.\n");
-		//fprintf(stderr, "outbuffer size is %zu, inbuffer size is %zu, writable size is %zu\n", outbuffer_length, inbuffer_length, pa_stream_writable_size(s));
+		fprintf(stderr, "outbuffer size is %zu, inbuffer size is %zu, writable size is %zu\n", outbuffer_length, inbuffer_length, pa_stream_writable_size(s));
 	}
+
+	trate *= 0.9999;
 }
 
 static void stream_overflow_callback(pa_stream *s, void *userdata)
@@ -152,6 +190,8 @@ static void stream_overflow_callback(pa_stream *s, void *userdata)
 
 	if (verbose)
 		fprintf(stderr, "Stream overrun.\n");
+
+	trate *= 1.0001;
 }
 
 static void stream_started_callback(pa_stream *s, void *userdata)
@@ -200,6 +240,8 @@ static void do_stream_write(pa_stream *s, size_t length)
 
 	if (!outbuffer || !outbuffer_length || !length)
 		return;
+
+	printf("Outbuffer %zu, reading %zu\n", outbuffer_length, length);
 
 	l = length < outbuffer_length ? length : outbuffer_length;
 
@@ -382,6 +424,10 @@ void open_output_stream(void)
 		tlength = pa_stream_get_buffer_attr(instream)->fragsize;
 	}
 
+	trate = out_sample_spec.rate;
+
+	printf("tlength = %d\n", tlength);
+
 	buffer_attr.fragsize = (uint32_t) -1;
 	buffer_attr.maxlength = (uint32_t) -1;
 	buffer_attr.minreq = (uint32_t) -1;
@@ -418,6 +464,7 @@ static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 {
 	size_t l = buf_size;
 
+	printf("Inbuffer %zu, reading %u\n", inbuffer_length, buf_size);
 	if (!inbuffer)
 		return AVERROR_EOF;
 
@@ -477,6 +524,7 @@ void set_state(enum state newstate)
 		pa_stream_disconnect(outstream);
 		pa_stream_unref(outstream);
 		outstream = NULL;
+		outstream_update_sample_rate(0);
 		fprintf(stderr, "Closed output stream\n");
 	}
 
@@ -614,6 +662,8 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 	assert(data);
 	assert(length > 0);
 
+	printf("reading %zu\n", length);
+
 	if(state==NOSIGNAL)
 	{
 		for(i=0; i<length/sizeof(uint32_t); i++)
@@ -652,6 +702,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
    		inbuffer = pa_xrealloc(inbuffer, inbuffer_index + inbuffer_length + length - i*sizeof(uint32_t));
    		memcpy((uint8_t*) inbuffer + inbuffer_index + inbuffer_length, (uint32_t*)data + i, length - i*sizeof(uint32_t));
    		inbuffer_length += length - i*sizeof(uint32_t);
+		printf("Inbuffer %zu, writing %zu\n", inbuffer_length-length + i*sizeof(uint32_t), length - i*sizeof(uint32_t));
 
 		if(!avformatcontext)
 		{
@@ -738,6 +789,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			swr_init(swrcontext);
 
 			out_bytes_per_sample = av_get_bytes_per_sample(swroutformat) * avcodeccontext->channels;
+			printf("out_bytes_per_sample = %zu\n", out_bytes_per_sample);
 
 			av_init_packet(&pkt);
 			pkt.data = NULL;
@@ -758,6 +810,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		int pcount=0, fcount=0;
 		while ( inbuffer_length > avformatcontext->pb->buffer_size * 2 && (i = av_read_frame(avformatcontext, &pkt)) >= 0)
 		{
+			printf("av_read_frame = %d\n", i);
 			pcount++;
 			int ret = avcodec_send_packet(avcodeccontext, &pkt);
 			av_packet_unref(&pkt);
@@ -770,11 +823,14 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			}
 			while ( (ret = avcodec_receive_frame(avcodeccontext, avframe)) >=0)
 			{
+				if(!avframe->nb_samples)
+					printf("avframe->nb_samples = 0!\n");
 				size_t addlen = swr_get_out_samples(swrcontext, avframe->nb_samples) * out_bytes_per_sample;
    				outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + addlen);
 				uint8_t *outptr = outbuffer + outbuffer_length;
 				outbuffer_length += swr_convert(swrcontext, &outptr, addlen, (const uint8_t **)avframe->extended_data, avframe->nb_samples) * out_bytes_per_sample;
 
+				printf("Outbuffer %zu, frame size %zu\n", outbuffer_length, addlen);
 				fcount++;
 				av_frame_unref(avframe);
 			}
@@ -786,6 +842,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 				return;
 			}
 		}
+		print_averror("av_read_frame", i);
 
 		static int total_missed_frames=0;
 
@@ -826,12 +883,47 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 		if(fcount && pa_stream_get_state(outstream) == PA_STREAM_READY)
 		{
+			static double err_old = NAN;
+			static double trate_lp = NAN;
+
 			if(tlength && outbuffer_length > tlength*2)
 			{
 				printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
 				outbuffer_index += outbuffer_length - tlength;
 				outbuffer_length = tlength;
+				if(!isnan(err_old))
+				{
+					err_old = NAN;
+					trate = avcodeccontext->sample_rate;
+					trate_lp = NAN;
+					outstream_update_sample_rate(avcodeccontext->sample_rate);
+				}
 				printf("outbuffer_length = %zu\n", outbuffer_length);
+			}
+			else
+			{
+				const double KL = 0.01;
+				const double KP = 0.000001;
+				const double KD = 0.002;
+
+				double err = (double)(int32_t)(outbuffer_length - tlength) / (double)tlength;
+
+				if(isnan(err_old))
+					err_old = err;
+				double err_diff = err - err_old;
+
+				double trate_old = trate;
+				trate += trate * (KP * err + KD * err_diff);
+
+				if(isnan(trate_lp))
+					trate_lp = trate;
+				else
+					trate_lp += KL * (trate - trate_lp);
+
+				err_old = err;
+
+				printf("trate_lp: %.0f, outbuffer: %zu, err: %+0.3f, err_diff: %+0.6f, compensation: %+0.3f %+0.3f = %+0.3f\n", trate_lp, outbuffer_length, err, err_diff, trate_old * KP * err, trate_old * KD * err_diff, trate_old * (KP * err + KD * err_diff));
+				outstream_update_sample_rate(round(trate_lp));
 			}
 
 			do_stream_write(outstream, pa_stream_writable_size(outstream));

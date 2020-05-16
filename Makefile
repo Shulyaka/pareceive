@@ -4,7 +4,7 @@ else
 	CFLAGS+=-Wall
 endif
 
-LDFLAGS+=-lpulse -lavformat -lavutil -lavcodec -lswresample
+LDFLAGS+=-lpulse -lavformat -lavutil -lavcodec -lswresample -lm
 
 .PHONY: clean install all
 
