@@ -142,7 +142,7 @@ static void stream_underflow_callback(pa_stream *s, void *userdata)
 	if (verbose)
 	{
 		fprintf(stderr, "Stream underrun.\n");
-		//fprintf(stderr, "outbuffer size is %d, inbuffer size is %d, writable size is %d\n", outbuffer_length, inbuffer_length, pa_stream_writable_size(s));
+		//fprintf(stderr, "outbuffer size is %zu, inbuffer size is %zu, writable size is %zu\n", outbuffer_length, inbuffer_length, pa_stream_writable_size(s));
 	}
 }
 
@@ -416,7 +416,6 @@ void open_output_stream(void)
 
 static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 {
-	//size_t l = buf_size < inbuffer_length ? buf_size : inbuffer_length;
 	size_t l = buf_size;
 
 	if (!inbuffer)
@@ -491,7 +490,6 @@ void set_state(enum state newstate)
 	switch(oldstate)
 	{
 		case NOSIGNAL:
-			// TODO: pa_stream_update_sample_rate
 			break;
 		case PCM:
 			break;
