@@ -621,7 +621,29 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			set_state(IEC61937);
 	}
 	else
+	{
+		static pa_usec_t silence=0;
+		for(i=0; i<length/sizeof(uint32_t); i++)
+			if(((uint32_t*)data)[i])
+				break;
+		if(i<length/sizeof(uint32_t))
+		{
+			silence = 0;
+		}
+		else
+		{
+			silence+=pa_bytes_to_usec(length, pa_stream_get_sample_spec(s));
+			if(silence > 100000)
+			{
+				fprintf(stderr, "Playing silence\n");
+				pa_stream_drop(s);
+				set_state(NOSIGNAL);
+				silence=0;
+				return;
+			}
+		}
 		i=0;
+	}
 
 	if(state==IEC61937)
 	{
@@ -641,8 +663,8 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			else if(block_size == 1)
 			{
 				fprintf(stderr, "IEC61937 validation failed\n");
-				set_state(PCM);
 				pa_stream_drop(s);
+				set_state(PCM);
 				return;
 			}
 
@@ -655,17 +677,16 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if( (i = avformat_open_input(&avformatcontext, pa_stream_get_device_name(s), av_find_input_format("spdif"), NULL)) < 0)
 			{
 				print_averror("avformat_open_input", i);
-				set_state(PCM);
 				pa_stream_drop(s);
+				set_state(NOSIGNAL);
 				return;
 			}
 
 			if( (i=avformat_find_stream_info(avformatcontext, NULL)) < 0)
 			{
-				if(i != AVERROR_EOF)
-					print_averror("avformat_find_stream_info", i);
-				set_state(PCM);
+				print_averror("avformat_find_stream_info", i);
 				pa_stream_drop(s);
+				set_state(NOSIGNAL);
 				return;
 			}
 
@@ -681,8 +702,8 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if ((i = avcodec_open2(avcodeccontext, dec, NULL)) < 0)
 			{
 				print_averror("avcodec_open2", i);
-				set_state(NOSIGNAL);
 				pa_stream_drop(s);
+				set_state(NOSIGNAL);
 				return;
 			}
 
@@ -726,8 +747,8 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if(ret<0)
 			{
 				print_averror("avcodec_send_packet", ret);
-				set_state(NOSIGNAL);
 				pa_stream_drop(s);
+				set_state(NOSIGNAL);
 				return;
 			}
 			while ( (ret = avcodec_receive_frame(avcodeccontext, avframe)) >=0)
@@ -743,17 +764,22 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if(ret != AVERROR(EAGAIN))
 			{
 				print_averror("avcodec_receive_frame", ret);
-				set_state(NOSIGNAL);
 				pa_stream_drop(s);
+				set_state(NOSIGNAL);
 				return;
 			}
 		}
 
-		if(i != 0 && i != AVERROR_EOF)
+		static int total_missed_frames=0;
+
+		if((!pcount || i != 0) && i != AVERROR_EOF)
 		{
 			print_averror("av_read_frame", i);
-			set_state(NOSIGNAL);
 			pa_stream_drop(s);
+			total_missed_frames = 0;
+			prevextralength = 0;
+			fprintf(stderr, "Playing silence\n");
+			set_state(NOSIGNAL);
 			return;
 		}
 
@@ -766,19 +792,18 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			prevextralength = 0;
 		}
 
-		static int total_missed_frames=0;
-
 		total_missed_frames += missed_frames;
 		if(!missed_frames)
 			total_missed_frames = 0;
 
-		if(total_missed_frames > 3)
+		if(total_missed_frames > 32)
 		{
+			fprintf(stderr, "Too many missed frames\n");
+			pa_stream_drop(s);
 			total_missed_frames = 0;
 			prevextralength = 0;
 			fprintf(stderr, "Playing silence\n");
 			set_state(NOSIGNAL);
-			pa_stream_drop(s);
 			return;
 		}
 
@@ -812,21 +837,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 		if(pa_stream_get_state(outstream) == PA_STREAM_READY)
 			do_stream_write(outstream, pa_stream_writable_size(outstream));
-
-		uint32_t notsilent=0;
-		for(i=0; i<length/sizeof(uint32_t); i++)
-			notsilent|=((uint32_t*)data)[i];
-		if(!notsilent)
-		{
-			static pa_usec_t silence=0;
-			silence+=pa_bytes_to_usec(length, pa_stream_get_sample_spec(s));
-			if(silence > 1000000)
-			{
-				fprintf(stderr, "Playing silence\n");
-				set_state(NOSIGNAL);
-				silence=0;
-			}
-		}
 	}
 
 	pa_stream_drop(s);
