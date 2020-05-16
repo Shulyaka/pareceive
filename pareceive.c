@@ -405,10 +405,10 @@ static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 	size_t l = buf_size;
 
 	if (!inbuffer)
-		return 0;
+		return AVERROR_EOF;
 
 	if (inbuffer_length < l)
-		return 0;
+		return AVERROR_EOF;
 
 	memcpy(buf, (uint8_t*) inbuffer + inbuffer_index, l);
 
@@ -889,7 +889,6 @@ int main(int argc, char *argv[])
 	if(argc > 3)
 		server = argv[3];
 
-	av_register_all();
 	avframe = av_frame_alloc();
 
 	/* Set up a new main loop */
