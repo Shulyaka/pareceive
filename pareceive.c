@@ -194,11 +194,14 @@ static void stream_event_callback(pa_stream *s, const char *name, pa_proplist *p
 /* Write some data to the stream */
 static void do_stream_write(pa_stream *s, size_t length)
 {
-	size_t l = length < outbuffer_length ? length : outbuffer_length;
+	size_t l;
+
 	assert(s);
 
-	if (!outbuffer || !outbuffer_length || !l)
+	if (!outbuffer || !outbuffer_length || !length)
 		return;
+
+	l = length < outbuffer_length ? length : outbuffer_length;
 
 	if (pa_stream_write(s, (uint8_t*) outbuffer + outbuffer_index, l, NULL, 0, PA_SEEK_RELATIVE) < 0)
 	{
@@ -216,7 +219,7 @@ static void do_stream_write(pa_stream *s, size_t length)
 		outbuffer = NULL;
 		outbuffer_index = outbuffer_length = 0;
 	}
-	else if(outbuffer_length > 1024*1024 && outbuffer_index > 4*1024)
+	else if(outbuffer_index > 4*1024)
 	{
 		memmove((uint8_t*)outbuffer, (uint8_t*)outbuffer + outbuffer_index, outbuffer_length);
 		outbuffer = pa_xrealloc(outbuffer, outbuffer_length);
@@ -433,10 +436,10 @@ static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 		inbuffer = NULL;
 		inbuffer_length = inbuffer_index = 0;
 	}
-	else if(inbuffer_length > 1024*1024 && inbuffer_index > 4*1024)
+	else if(inbuffer_index > 4*1024)
 	{
 		memmove((uint8_t*)inbuffer, (uint8_t*)inbuffer + inbuffer_index, inbuffer_length);
-		inbuffer = pa_xrealloc(inbuffer, inbuffer_length - inbuffer_index);
+		inbuffer = pa_xrealloc(inbuffer, inbuffer_length);
 		inbuffer_index = 0;
 	}
 
@@ -501,6 +504,7 @@ void set_state(enum state newstate)
 				avformat_close_input(&avformatcontext);
 				avcodec_free_context(&avcodeccontext);
 				swr_free(&swrcontext);
+				avformatcontext = NULL;
 			}
 
 			if(inbuffer)
@@ -670,6 +674,13 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 			fprintf(stderr, "block_size=%zu\n", block_size);
 	
+			if(inbuffer_length < block_size * 3)
+			{
+				fprintf(stderr, "Buffer is too small, waiting for more data\n");
+				pa_stream_drop(s);
+				return;
+			}
+
 			prevextralength = inbuffer_length;
 
 			avformatcontext = avformat_alloc_context();
@@ -694,6 +705,14 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 			AVCodec *dec = NULL;
 			int stream_index = av_find_best_stream(avformatcontext, AVMEDIA_TYPE_AUDIO, -1, -1, &dec, 0);
+
+			if(stream_index < 0)
+			{
+				print_averror("av_find_best_stream", stream_index);
+				pa_stream_drop(s);
+				set_state(NOSIGNAL);
+				return;
+			}
 
 			avcodeccontext = avcodec_alloc_context3(dec); 	
 
@@ -736,10 +755,10 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		}
 	}
 
-	if(state==IEC61937)
+	if(state==IEC61937 && inbuffer_length > avformatcontext->pb->buffer_size * 2)
 	{
 		int pcount=0, fcount=0;
-		while ( (i = av_read_frame(avformatcontext, &pkt)) >= 0)
+		while ( inbuffer_length > avformatcontext->pb->buffer_size * 2 && (i = av_read_frame(avformatcontext, &pkt)) >= 0)
 		{
 			pcount++;
 			int ret = avcodec_send_packet(avcodeccontext, &pkt);
@@ -811,14 +830,18 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		{
 			if(tlength && outbuffer_length > tlength*2)
 			{
-				printf("Outbuffer is too long (%lu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
+				printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
 				outbuffer_index += outbuffer_length - tlength;
 				outbuffer_length = tlength;
-				printf("outbuffer_length = %lu\n", outbuffer_length);
+				printf("outbuffer_length = %zu\n", outbuffer_length);
 			}
 
 			do_stream_write(outstream, pa_stream_writable_size(outstream));
 		}
+	}
+	else if(state==IEC61937)
+	{
+		printf("Inbuffer %zu is too low, skipping decode step\n", inbuffer_length);
 	}
 
 	if(state==PCM)
