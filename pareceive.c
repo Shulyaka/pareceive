@@ -535,19 +535,19 @@ void set_state(enum state newstate)
 	}
 }
 
-#define SPDIF_MAX_OFFSET 16384
+#define SPDIF_MAX_OFFSET 16384*10
 
 // returns 0 if data is too small for examination, 1 if validation fails and a block size (aka offset) if validation is successful
-size_t iec61937_validate(uint8_t* data, size_t length)
+size_t iec61937_validate(const uint8_t* data, size_t length)
 {
 	static const uint32_t magic = 0x4E1FF872;
 	size_t firstmagic, secondmagic;
 
-	for(firstmagic = 0; firstmagic < length/sizeof(uint32_t); firstmagic++)
-		if(((uint32_t*)data)[firstmagic] == magic)
+	for(firstmagic = 0; firstmagic < length-sizeof(uint32_t)+1; firstmagic++)
+		if(*(uint32_t*)(data+firstmagic) == magic)
 			break;
 
-	if(firstmagic == length/sizeof(uint32_t))
+	if(firstmagic == length-sizeof(uint32_t)+1)
 	{
 		if(length < SPDIF_MAX_OFFSET)
 			return 0;
@@ -555,11 +555,11 @@ size_t iec61937_validate(uint8_t* data, size_t length)
 			return 1;
 	}
 
-	for(secondmagic = firstmagic + (((uint16_t*)data)[firstmagic*2+3] >> 5) + 2; secondmagic < length/sizeof(uint32_t); secondmagic++)
-		if(((uint32_t*)data)[secondmagic] == magic)
+	for(secondmagic = firstmagic + (data[firstmagic+6] >> 5) + 2; secondmagic < length-sizeof(uint32_t)+1; secondmagic++)
+		if(*(uint32_t*)(data+secondmagic) == magic)
 			break;
 
-	if(secondmagic == length/sizeof(uint32_t))
+	if(secondmagic == length-sizeof(uint32_t)+1)
 	{
 		if(length < SPDIF_MAX_OFFSET * 2)
 			return 0;
@@ -567,15 +567,28 @@ size_t iec61937_validate(uint8_t* data, size_t length)
 			return 1;
 	}
 
-	secondmagic = (secondmagic-firstmagic)*sizeof(uint32_t);
+	secondmagic -= firstmagic;
 
 	if(secondmagic > SPDIF_MAX_OFFSET)
 		return 1;
 
 	if(length < secondmagic * 2)
-		return 0; // We have found the block size but ffmpeg requires more sync codes, please see spdif_probe() in spdifdec.c	
+		return 0;
 
 	return secondmagic;
+}
+
+//returns 1 if magic found, 0 if not
+int iec61937_suspect(const uint8_t* data, size_t length)
+{
+	static const uint32_t magic = 0x4E1FF872;
+	size_t firstmagic;
+
+	for(firstmagic = 0; firstmagic < length-sizeof(uint32_t)+1; firstmagic++)
+		if(*(uint32_t*)(data+firstmagic) == magic)
+			break;
+
+	return (firstmagic == length-sizeof(uint32_t)+1) ? 0 : 1;
 }
 
 /* This is called whenever new data may is available */
@@ -785,6 +798,14 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 	if(state==PCM)
 	{
+		if(iec61937_suspect(data, length))
+		{
+			printf("Suspected IEC61937\n");
+			pa_stream_drop(s);
+			set_state(IEC61937);
+			return;
+		}
+
    		outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + length);
    		memcpy((uint8_t*) outbuffer + outbuffer_index + outbuffer_length, data, length);
    		outbuffer_length += length;
