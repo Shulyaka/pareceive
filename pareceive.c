@@ -69,6 +69,7 @@ static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *use
 
 	if (!(a = pa_stream_get_buffer_attr(s)))
 		fprintf(stderr, "pa_stream_get_buffer_attr() failed: %s\n", pa_strerror(pa_context_errno(pa_stream_get_context(s))));
+#ifdef DEBUG_LATENCY
 	else
 	{
 		if(s==instream)
@@ -76,6 +77,7 @@ static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *use
 		else
 			fprintf(stderr, "New outbuffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u\n", a->maxlength, a->tlength, a->prebuf, a->minreq);
 	}
+#endif
 }
 
 /* This routine is called whenever the stream state changes */
@@ -97,6 +99,7 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 
 			if (!(a = pa_stream_get_buffer_attr(s)))
 				fprintf(stderr, "pa_stream_get_buffer_attr() failed: %s\n", pa_strerror(pa_context_errno(pa_stream_get_context(s))));
+#ifdef DEBUG_LATENCY
 			else
 			{
 				if(s==instream)
@@ -104,6 +107,7 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 				else
 					fprintf(stderr, "Buffer metrics: maxlength=%u, tlength=%u, prebuf=%u, minreq=%u\n", a->maxlength, a->tlength, a->prebuf, a->minreq);
 			}
+#endif
 
 			fprintf(stderr, "Using sample spec '%s', channel map '%s'.\n",
 					pa_sample_spec_snprint(sst, sizeof(sst), pa_stream_get_sample_spec(s)),
@@ -140,10 +144,7 @@ static void stream_underflow_callback(pa_stream *s, void *userdata)
 	assert(s);
 
 	if (verbose)
-	{
 		fprintf(stderr, "Stream underrun.\n");
-		//fprintf(stderr, "outbuffer size is %zu, inbuffer size is %zu, writable size is %zu\n", outbuffer_length, inbuffer_length, pa_stream_writable_size(s));
-	}
 }
 
 static void stream_overflow_callback(pa_stream *s, void *userdata)
@@ -658,7 +659,9 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			size_t block_size = iec61937_validate(inbuffer + inbuffer_index, inbuffer_length);
 			if (block_size == 0)
 			{
+#ifdef DEBUG_LATENCY
 				fprintf(stderr, "Buffer is too small, waiting for more data\n");
+#endif
 				pa_stream_drop(s);
 				return;
 			}
@@ -670,11 +673,15 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 				return;
 			}
 
+#ifdef DEBUG_LATENCY
 			fprintf(stderr, "block_size=%zu\n", block_size);
+#endif
 	
 			if(inbuffer_length < block_size * 3)
 			{
+#ifdef DEBUG_LATENCY
 				fprintf(stderr, "Buffer is too small, waiting for more data\n");
+#endif
 				pa_stream_drop(s);
 				return;
 			}
@@ -828,19 +835,25 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		{
 			if(tlength && outbuffer_length > tlength*2)
 			{
+#ifdef DEBUG_LATENCY
 				printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
+#endif
 				outbuffer_index += outbuffer_length - tlength;
 				outbuffer_length = tlength;
+#ifdef DEBUG_LATENCY
 				printf("outbuffer_length = %zu\n", outbuffer_length);
+#endif
 			}
 
 			do_stream_write(outstream, pa_stream_writable_size(outstream));
 		}
 	}
+#ifdef DEBUG_LATENCY
 	else if(state==IEC61937)
 	{
 		printf("Inbuffer %zu is too low, skipping decode step\n", inbuffer_length);
 	}
+#endif
 
 	if(state==PCM)
 	{
