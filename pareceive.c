@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <pulse/pulseaudio.h>
 
@@ -23,16 +25,23 @@ static size_t inbuffer_length = 0, inbuffer_index = 0;
 static void *outbuffer = NULL;
 static size_t outbuffer_length = 0, outbuffer_index = 0;
 
+static pa_io_event* stdio_event = NULL;
+
 uint32_t tlength = 0;
 
 static int verbose = 1;
 
-static pa_sample_spec sample_spec =
+static pa_sample_spec in_sample_spec =
 {
 	.format = PA_SAMPLE_S16LE,
 	.rate = 48000,
 	.channels = 2
 };
+pa_sample_spec out_sample_spec;
+
+const char* input_device_name = "stdin";
+#define MAX_STDIN_READ 16384
+size_t stdin_fragsize = MAX_STDIN_READ;
 
 static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH | PA_STREAM_ADJUST_LATENCY;
 static pa_stream_flags_t outflags = PA_STREAM_ADJUST_LATENCY;
@@ -117,6 +126,13 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 					pa_stream_get_device_name(s),
 					pa_stream_get_device_index(s),
 					pa_stream_is_suspended(s) ? "" : "not ");
+
+			if(s == instream)
+			{
+				in_sample_spec = *pa_stream_get_sample_spec(s);
+				input_device_name = pa_stream_get_device_name(s);
+			}
+
 			break;
 
 		case PA_STREAM_FAILED:
@@ -159,6 +175,12 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 {
 	assert(s);
 
+	if(s == instream)
+	{
+		in_sample_spec = *pa_stream_get_sample_spec(s);
+		input_device_name = pa_stream_get_device_name(s);
+	}
+
 	if (verbose)
 		fprintf(stderr, "Stream started.\n");
 }
@@ -166,6 +188,12 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 static void stream_moved_callback(pa_stream *s, void *userdata)
 {
 	assert(s);
+
+	if(s == instream)
+	{
+		in_sample_spec = *pa_stream_get_sample_spec(s);
+		input_device_name = pa_stream_get_device_name(s);
+	}
 
 	if (verbose)
 		fprintf(stderr, "Stream moved to device %s (%u, %ssuspended).\n", pa_stream_get_device_name(s), pa_stream_get_device_index(s), pa_stream_is_suspended(s) ? "" : "not ");
@@ -199,10 +227,10 @@ static void do_stream_write(pa_stream *s, size_t length)
 
 	assert(s);
 
-	if (!outbuffer || !outbuffer_length || !length)
-		return;
+	size_t out_frame_size = pa_frame_size(&out_sample_spec);
 
-	l = length < outbuffer_length ? length : outbuffer_length;
+	if (!outbuffer || !outbuffer_length || !length || !(l = ((length < outbuffer_length ? length : outbuffer_length) / out_frame_size) * out_frame_size))
+		return;
 
 	if (pa_stream_write(s, (uint8_t*) outbuffer + outbuffer_index, l, NULL, 0, PA_SEEK_RELATIVE) < 0)
 	{
@@ -358,7 +386,6 @@ void map_channel_layout(pa_channel_map* channel_map, uint64_t channel_layout)
 void open_output_stream(void)
 {
 	int r;
-	pa_sample_spec out_sample_spec;
 	pa_channel_map out_channel_map;
 	pa_buffer_attr buffer_attr;
 
@@ -375,12 +402,22 @@ void open_output_stream(void)
 	}
 	else
 	{
-		const pa_sample_spec* in_sample_spec = pa_stream_get_sample_spec(instream);
-		out_sample_spec.format = in_sample_spec->format;
-		out_sample_spec.rate = in_sample_spec->rate;
-		out_sample_spec.channels = in_sample_spec->channels;
-		memcpy(&out_channel_map, pa_stream_get_channel_map(instream), sizeof(pa_channel_map));
-		tlength = pa_stream_get_buffer_attr(instream)->fragsize;
+		out_sample_spec.format = in_sample_spec.format;
+		out_sample_spec.rate = in_sample_spec.rate;
+		out_sample_spec.channels = in_sample_spec.channels;
+		if (instream)
+		{
+			memcpy(&out_channel_map, pa_stream_get_channel_map(instream), sizeof(pa_channel_map));
+			tlength = pa_stream_get_buffer_attr(instream)->fragsize;
+		}
+		else
+		{
+			pa_channel_map_init(&out_channel_map);
+			out_channel_map.channels = 2;
+			out_channel_map.map[0] = PA_CHANNEL_POSITION_FRONT_LEFT;
+			out_channel_map.map[1] = PA_CHANNEL_POSITION_FRONT_RIGHT;
+			tlength = 16384;
+		}
 	}
 
 	buffer_attr.fragsize = (uint32_t) -1;
@@ -459,10 +496,19 @@ void print_averror(const char *str, int err)
 
 void set_instream_fragsize(uint32_t fragsize)
 {
-	pa_buffer_attr buffer_attr;
-	memcpy(&buffer_attr, pa_stream_get_buffer_attr(instream), sizeof(pa_buffer_attr));
-	buffer_attr.fragsize = fragsize;
-	pa_operation_unref(pa_stream_set_buffer_attr(instream, &buffer_attr, stream_set_buffer_attr_callback, NULL));
+	if(instream)
+	{
+		pa_buffer_attr buffer_attr;
+		memcpy(&buffer_attr, pa_stream_get_buffer_attr(instream), sizeof(pa_buffer_attr));
+		buffer_attr.fragsize = fragsize;
+		pa_operation_unref(pa_stream_set_buffer_attr(instream, &buffer_attr, stream_set_buffer_attr_callback, NULL));
+	}
+	else
+	{
+		stdin_fragsize = fragsize == (uint32_t) -1 ? MAX_STDIN_READ : fragsize;
+		if(stdin_fragsize > MAX_STDIN_READ)
+			stdin_fragsize = MAX_STDIN_READ;
+	}
 }
 
 void set_state(enum state newstate)
@@ -478,6 +524,7 @@ void set_state(enum state newstate)
 		pa_stream_disconnect(outstream);
 		pa_stream_unref(outstream);
 		outstream = NULL;
+		out_sample_spec = in_sample_spec;
 		fprintf(stderr, "Closed output stream\n");
 	}
 
@@ -594,23 +641,12 @@ int iec61937_suspect(const uint8_t* data, size_t length)
 	return (firstmagic == length-sizeof(uint32_t)+1) ? 0 : 1;
 }
 
-/* This is called whenever new data may is available */
-static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
+/* Process new data */
+static void decode_data(const void *data, size_t length, void *userdata)
 {
-	const void *data;
 	int i=0;
 	static AVPacket pkt;
 	static size_t prevextralength = 0;
-
-	assert(s);
-	assert(length > 0);
-
-	if (pa_stream_peek(s, &data, &length) < 0)
-	{
-		fprintf(stderr, "pa_stream_peek() failed: %s\n", pa_strerror(pa_context_errno(context)));
-		quit(1);
-		return;
-	}
 
 	assert(data);
 	assert(length > 0);
@@ -635,11 +671,10 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		}
 		else
 		{
-			silence+=pa_bytes_to_usec(length, pa_stream_get_sample_spec(s));
+			silence+=pa_bytes_to_usec(length, &in_sample_spec);
 			if(silence > 100000)
 			{
 				fprintf(stderr, "Playing silence\n");
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				silence=0;
 				return;
@@ -662,13 +697,11 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 #ifdef DEBUG_LATENCY
 				fprintf(stderr, "Buffer is too small, waiting for more data\n");
 #endif
-				pa_stream_drop(s);
 				return;
 			}
 			else if(block_size == 1)
 			{
 				fprintf(stderr, "IEC61937 validation failed\n");
-				pa_stream_drop(s);
 				set_state(PCM);
 				return;
 			}
@@ -682,7 +715,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 #ifdef DEBUG_LATENCY
 				fprintf(stderr, "Buffer is too small, waiting for more data\n");
 #endif
-				pa_stream_drop(s);
 				return;
 			}
 
@@ -690,10 +722,9 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 
 			avformatcontext = avformat_alloc_context();
 			avformatcontext->pb = avio_alloc_context(av_malloc(block_size), block_size, 0, NULL, readFunction, NULL, NULL);
-			if( (i = avformat_open_input(&avformatcontext, pa_stream_get_device_name(s), av_find_input_format("spdif"), NULL)) < 0)
+			if( (i = avformat_open_input(&avformatcontext, input_device_name, av_find_input_format("spdif"), NULL)) < 0)
 			{
 				print_averror("avformat_open_input", i);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -701,12 +732,11 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if( (i=avformat_find_stream_info(avformatcontext, NULL)) < 0)
 			{
 				print_averror("avformat_find_stream_info", i);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
 
-			//av_dump_format(avformatcontext, 0, pa_stream_get_device_name(s), 0);
+			//av_dump_format(avformatcontext, 0, input_device_name, 0);
 
 			AVCodec *dec = NULL;
 			int stream_index = av_find_best_stream(avformatcontext, AVMEDIA_TYPE_AUDIO, -1, -1, &dec, 0);
@@ -714,7 +744,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if(stream_index < 0)
 			{
 				print_averror("av_find_best_stream", stream_index);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -726,7 +755,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if ((i = avcodec_open2(avcodeccontext, dec, NULL)) < 0)
 			{
 				print_averror("avcodec_open2", i);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -771,7 +799,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if(ret<0)
 			{
 				print_averror("avcodec_send_packet", ret);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -788,7 +815,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 			if(ret != AVERROR(EAGAIN))
 			{
 				print_averror("avcodec_receive_frame", ret);
-				pa_stream_drop(s);
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -799,7 +825,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		if((!pcount || i != 0) && i != AVERROR_EOF)
 		{
 			print_averror("av_read_frame", i);
-			pa_stream_drop(s);
 			total_missed_frames = 0;
 			prevextralength = 0;
 			fprintf(stderr, "Playing silence\n");
@@ -823,7 +848,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		if(total_missed_frames > 32)
 		{
 			fprintf(stderr, "Too many missed frames\n");
-			pa_stream_drop(s);
 			total_missed_frames = 0;
 			prevextralength = 0;
 			fprintf(stderr, "Playing silence\n");
@@ -860,7 +884,6 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		if(iec61937_suspect(data, length))
 		{
 			printf("Suspected IEC61937\n");
-			pa_stream_drop(s);
 			set_state(IEC61937);
 			return;
 		}
@@ -872,8 +895,62 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 		if(pa_stream_get_state(outstream) == PA_STREAM_READY)
 			do_stream_write(outstream, pa_stream_writable_size(outstream));
 	}
+}
+
+/* This is called whenever new data may is available */
+static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
+{
+	const void *data;
+
+	assert(s);
+	assert(length > 0);
+
+	if (pa_stream_peek(s, &data, &length) < 0)
+	{
+		fprintf(stderr, "pa_stream_peek() failed: %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+		return;
+	}
+
+	decode_data(data, length, userdata);
 
 	pa_stream_drop(s);
+}
+
+/* New data on STDIN **/
+static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_event_flags_t f, void *userdata)
+{
+	uint8_t buf[MAX_STDIN_READ];
+	ssize_t r;
+
+	assert(a == mainloop_api);
+	assert(e);
+	assert(stdio_event == e);
+
+	//if(stdin_fragsize > MAX_STDIN_READ)
+	//	stdin_fragsize = MAX_STDIN_READ;
+
+	while((r = read(fd, &buf, stdin_fragsize)) > 0)
+	{
+		decode_data(buf, r, userdata);
+	}
+
+	if (r == 0)
+	{
+		if (verbose)
+			fprintf(stderr, "Got EOF.\n");
+
+		//start_drain();
+		quit(1);
+		mainloop_api->io_free(stdio_event);
+		stdio_event = NULL;
+		return;
+	}
+	else if (r < 0 && errno != EWOULDBLOCK)
+	{
+		fprintf(stderr, "read() failed: %s", strerror(errno));
+		quit(1);
+	}
 }
 
 /* This is called whenever the context status changes */
@@ -890,6 +967,9 @@ static void context_state_callback(pa_context *c, void *userdata)
 
 		case PA_CONTEXT_READY:
 		{
+			if (stdio_event)
+				break;
+
 			int r;
 			pa_buffer_attr buffer_attr;
 
@@ -898,7 +978,7 @@ static void context_state_callback(pa_context *c, void *userdata)
 
 			fprintf(stderr, "Connection established.\n");
 
-			if (!(instream = pa_stream_new(c, "pareceive input stream", &sample_spec, NULL)))
+			if (!(instream = pa_stream_new(c, "pareceive input stream", &in_sample_spec, NULL)))
 			{
 				fprintf(stderr, "pa_stream_new() failed: %s\n", pa_strerror(pa_context_errno(c)));
 				goto fail;
@@ -963,10 +1043,11 @@ int main(int argc, char *argv[])
 	pa_mainloop* m = NULL;
 	int ret = 1, r;
 	char *server = NULL;
+	unsigned long type = 0;
 
 	if(argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")))
 	{
-		printf("Usage: %s [indevice [outdevice [server]]]\n", argv[0]);
+		printf("Usage: %s [indevice [outdevice [server]]]\nTo use stdin as input, use - as indevice\n", argv[0]);
 		return 0;
 	}
 
@@ -1000,6 +1081,15 @@ int main(int argc, char *argv[])
 #ifdef SIGPIPE
 	signal(SIGPIPE, SIG_IGN);
 #endif
+
+	if (indevice && !strcmp(indevice, "-"))
+	{
+		fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
+		if (!(stdio_event = mainloop_api->io_new(mainloop_api, STDIN_FILENO, PA_IO_EVENT_INPUT, stdin_callback, &type))) {
+			fprintf(stderr, "io_new() failed.");
+			goto quit;
+		}
+	}
 
 	/* Create a new connection context */
 	if (!(context = pa_context_new(mainloop_api, "pareceive")))
@@ -1039,6 +1129,12 @@ quit:
 	{
 		pa_context_disconnect(context);
 		pa_context_unref(context);
+	}
+
+	if (stdio_event)
+	{
+		assert(mainloop_api);
+		mainloop_api->io_free(stdio_event);
 	}
 
 	if (m)

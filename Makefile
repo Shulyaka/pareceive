@@ -1,5 +1,6 @@
 ifeq ($(DEBUG),Y)
 	CFLAGS+=-ggdb -O0 -Wall -DDEBUG
+	LDFLAGS+=-ggdb
 else
 	CFLAGS+=-Wall
 endif
