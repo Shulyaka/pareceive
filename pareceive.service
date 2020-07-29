@@ -5,6 +5,7 @@ BindsTo=pulseaudio.service
 
 [Service]
 Type=simple
+;ExecStart=/bin/bash -c "arecord -D hw:CARD=sndrpihifiberry,DEV=0 -q -C -f s16_le -c 2 -t raw --disable-channels --disable-format --disable-resample --disable-softvol | pareceive -"
 ExecStart=/usr/local/bin/pareceive
 Restart=always
 RestartSec=5

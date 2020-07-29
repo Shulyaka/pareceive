@@ -1,0 +1,1 @@
+SUBSYSTEM=="sound", DRIVERS=="snd-rpi-wm8804", ATTR{id}=="sndrpihifiberry", ENV{PULSE_IGNORE}="1"
