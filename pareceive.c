@@ -63,6 +63,62 @@ static void quit(int ret)
 	mainloop_api->quit(mainloop_api, ret);
 }
 
+/* Connection draining complete */
+static void context_drain_complete(pa_context*c, void *userdata)
+{
+	pa_context_disconnect(c);
+}
+
+/* Stream draining complete */
+static void stream_drain_complete(pa_stream*s, int success, void *userdata)
+{
+	pa_operation *o = NULL;
+
+	if (!success)
+	{
+		fprintf(stderr, "Failed to drain stream: %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+	}
+
+	if (verbose)
+		fprintf(stderr, "Playback stream drained.\n");
+
+	pa_stream_disconnect(outstream);
+	pa_stream_unref(outstream);
+	outstream = NULL;
+
+	if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
+		pa_context_disconnect(context);
+	else
+	{
+		pa_operation_unref(o);
+		if (verbose)
+			fprintf(stderr, "Draining connection to server.\n");
+	}
+}
+
+/* Start draining */
+static void start_drain(void)
+{
+	if (outstream)
+	{
+		pa_operation *o;
+
+		pa_stream_set_write_callback(outstream, NULL, NULL);
+
+		if (!(o = pa_stream_drain(outstream, stream_drain_complete, NULL)))
+		{
+			fprintf(stderr, "pa_stream_drain(): %s\n", pa_strerror(pa_context_errno(context)));
+			quit(1);
+			return;
+		}
+
+		pa_operation_unref(o);
+	}
+	else
+		quit(0);
+}
+
 static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *userdata)
 {
 	assert(s);
@@ -940,15 +996,14 @@ static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_eve
 		if (verbose)
 			fprintf(stderr, "Got EOF.\n");
 
-		//start_drain();
-		quit(1);
+		start_drain();
 		mainloop_api->io_free(stdio_event);
 		stdio_event = NULL;
 		return;
 	}
 	else if (r < 0 && errno != EWOULDBLOCK)
 	{
-		fprintf(stderr, "read() failed: %s", strerror(errno));
+		fprintf(stderr, "read() failed: %s\n", strerror(errno));
 		quit(1);
 	}
 }
@@ -1084,9 +1139,14 @@ int main(int argc, char *argv[])
 
 	if (indevice && !strcmp(indevice, "-"))
 	{
-		fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK);
-		if (!(stdio_event = mainloop_api->io_new(mainloop_api, STDIN_FILENO, PA_IO_EVENT_INPUT, stdin_callback, &type))) {
-			fprintf(stderr, "io_new() failed.");
+		if(fcntl(STDIN_FILENO, F_SETFL, fcntl(STDIN_FILENO, F_GETFL) | O_NONBLOCK) < 0)
+		{
+			fprintf(stderr, "fcntl: %s\n", strerror(errno));
+			goto quit;
+		}
+		if (!(stdio_event = mainloop_api->io_new(mainloop_api, STDIN_FILENO, PA_IO_EVENT_INPUT, stdin_callback, &type)))
+		{
+			fprintf(stderr, "io_new() failed.\n");
 			goto quit;
 		}
 	}
