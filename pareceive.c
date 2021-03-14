@@ -41,7 +41,7 @@ pa_sample_spec out_sample_spec;
 
 const char* input_device_name = "stdin";
 #define MAX_STDIN_READ 16384
-size_t stdin_fragsize = MAX_STDIN_READ;
+size_t stdin_fragsize = 0;
 
 static pa_stream_flags_t inflags = PA_STREAM_FIX_RATE | PA_STREAM_FIX_FORMAT | PA_STREAM_NO_REMIX_CHANNELS | PA_STREAM_NO_REMAP_CHANNELS | PA_STREAM_VARIABLE_RATE | PA_STREAM_DONT_MOVE | PA_STREAM_START_UNMUTED | PA_STREAM_PASSTHROUGH | PA_STREAM_ADJUST_LATENCY;
 static pa_stream_flags_t outflags = PA_STREAM_ADJUST_LATENCY;
@@ -983,8 +983,8 @@ static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_eve
 	assert(e);
 	assert(stdio_event == e);
 
-	//if(stdin_fragsize > MAX_STDIN_READ)
-	//	stdin_fragsize = MAX_STDIN_READ;
+	if(!stdin_fragsize)
+		return;
 
 	while((r = read(fd, &buf, stdin_fragsize)) > 0)
 	{
@@ -1023,7 +1023,10 @@ static void context_state_callback(pa_context *c, void *userdata)
 		case PA_CONTEXT_READY:
 		{
 			if (stdio_event)
+			{
+				stdin_fragsize = MAX_STDIN_READ;
 				break;
+			}
 
 			int r;
 			pa_buffer_attr buffer_attr;
