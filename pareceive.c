@@ -100,9 +100,19 @@ static void stream_drain_complete(pa_stream*s, int success, void *userdata)
 /* Start draining */
 static void start_drain(void)
 {
+	pa_operation *o;
+
 	if(!outstream)
 	{
 		fprintf(stderr, "The output stream has not been created\n");
+		if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
+			pa_context_disconnect(context);
+		else
+		{
+			pa_operation_unref(o);
+			if (verbose)
+				fprintf(stderr, "Draining connection to server.\n");
+		}
 		return;
 	}
 	if(pa_stream_get_state(outstream) == PA_STREAM_CREATING)
@@ -110,8 +120,6 @@ static void start_drain(void)
 		fprintf(stderr, "The output stream is still being created\n");
 		return;
 	}
-
-	pa_operation *o;
 
 	pa_stream_set_write_callback(outstream, NULL, NULL);
 
