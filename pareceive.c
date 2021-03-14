@@ -661,7 +661,7 @@ size_t iec61937_validate(const uint8_t* data, size_t length)
 			return 1;
 	}
 
-	for(secondmagic = firstmagic + (data[firstmagic+6] >> 5) + 2; secondmagic < length-sizeof(uint32_t)+1; secondmagic++)
+	for(secondmagic = firstmagic + ((*(uint16_t*)(data+firstmagic+6))>>3) + 8; secondmagic < length-sizeof(uint32_t)+1; secondmagic++)
 		if(*(uint32_t*)(data+secondmagic) == magic)
 			break;
 
