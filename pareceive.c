@@ -100,23 +100,29 @@ static void stream_drain_complete(pa_stream*s, int success, void *userdata)
 /* Start draining */
 static void start_drain(void)
 {
-	if (outstream)
+	if(!outstream)
 	{
-		pa_operation *o;
-
-		pa_stream_set_write_callback(outstream, NULL, NULL);
-
-		if (!(o = pa_stream_drain(outstream, stream_drain_complete, NULL)))
-		{
-			fprintf(stderr, "pa_stream_drain(): %s\n", pa_strerror(pa_context_errno(context)));
-			quit(1);
-			return;
-		}
-
-		pa_operation_unref(o);
+		fprintf(stderr, "The output stream has not been created\n");
+		return;
 	}
-	else
-		quit(0);
+	if(pa_stream_get_state(outstream) == PA_STREAM_CREATING)
+	{
+		fprintf(stderr, "The output stream is still being created\n");
+		return;
+	}
+
+	pa_operation *o;
+
+	pa_stream_set_write_callback(outstream, NULL, NULL);
+
+	if (!(o = pa_stream_drain(outstream, stream_drain_complete, NULL)))
+	{
+		fprintf(stderr, "pa_stream_drain(): %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+		return;
+	}
+
+	pa_operation_unref(o);
 }
 
 static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *userdata)
@@ -239,6 +245,9 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 
 	if (verbose)
 		fprintf(stderr, "Stream started.\n");
+
+	if (!instream && !stdio_event)
+		start_drain();
 }
 
 static void stream_moved_callback(pa_stream *s, void *userdata)
@@ -781,6 +790,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if( (i = avformat_open_input(&avformatcontext, input_device_name, av_find_input_format("spdif"), NULL)) < 0)
 			{
 				print_averror("avformat_open_input", i);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -788,6 +798,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if( (i=avformat_find_stream_info(avformatcontext, NULL)) < 0)
 			{
 				print_averror("avformat_find_stream_info", i);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -800,6 +811,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if(stream_index < 0)
 			{
 				print_averror("av_find_best_stream", stream_index);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -811,6 +823,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if ((i = avcodec_open2(avcodeccontext, dec, NULL)) < 0)
 			{
 				print_averror("avcodec_open2", i);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -855,6 +868,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if(ret<0)
 			{
 				print_averror("avcodec_send_packet", ret);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -871,6 +885,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			if(ret != AVERROR(EAGAIN))
 			{
 				print_averror("avcodec_receive_frame", ret);
+				fprintf(stderr, "Playing silence\n");
 				set_state(NOSIGNAL);
 				return;
 			}
@@ -1022,6 +1037,8 @@ static void context_state_callback(pa_context *c, void *userdata)
 
 		case PA_CONTEXT_READY:
 		{
+			fprintf(stderr, "Connection established.\n");
+
 			if (stdio_event)
 			{
 				stdin_fragsize = MAX_STDIN_READ;
@@ -1033,8 +1050,6 @@ static void context_state_callback(pa_context *c, void *userdata)
 
 			assert(c);
 			assert(!instream);
-
-			fprintf(stderr, "Connection established.\n");
 
 			if (!(instream = pa_stream_new(c, "pareceive input stream", &in_sample_spec, NULL)))
 			{
