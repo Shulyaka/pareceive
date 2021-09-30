@@ -971,6 +971,18 @@ static void decode_data(const void *data, size_t length, void *userdata)
    		memcpy((uint8_t*) outbuffer + outbuffer_index + outbuffer_length, data, length);
    		outbuffer_length += length;
 
+		if(tlength && outbuffer_length > tlength*2)
+		{
+#ifdef DEBUG_LATENCY
+			printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
+#endif
+			outbuffer_index += outbuffer_length - tlength;
+			outbuffer_length = tlength;
+#ifdef DEBUG_LATENCY
+			printf("outbuffer_length = %zu\n", outbuffer_length);
+#endif
+		}
+
 		if(pa_stream_get_state(outstream) == PA_STREAM_READY)
 			do_stream_write(outstream, pa_stream_writable_size(outstream));
 	}
