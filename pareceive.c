@@ -910,7 +910,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 		}
 
 		int missed_frames = (length+prevextralength) / avformatcontext->pb->buffer_size;
-		prevextralength += length - missed_frames * avformatcontext->pb->buffer_size;
+		prevextralength += length - (unsigned long)missed_frames * avformatcontext->pb->buffer_size;
 		missed_frames -= fcount;
 		if (missed_frames < 0)
 		{
