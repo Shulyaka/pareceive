@@ -332,11 +332,23 @@ static void do_stream_write(pa_stream *s, size_t length)
 /* This is called whenever new data may be written to the stream */
 static void stream_write_callback(pa_stream *s, size_t length, void *userdata)
 {
-	assert(length > 0);
+	assert(length >= 0);
 	assert(s);
 
-	if (!outbuffer)
+	if (!length || !outbuffer)
 		return;
+
+	if(tlength && outbuffer_length > tlength*2)
+	{
+#ifdef DEBUG_LATENCY
+		printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
+#endif
+		outbuffer_index += outbuffer_length - tlength;
+		outbuffer_length = tlength;
+#ifdef DEBUG_LATENCY
+		printf("outbuffer_length = %zu\n", outbuffer_length);
+#endif
+	}
 
 	do_stream_write(s, length);
 }
@@ -933,23 +945,6 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			set_state(NOSIGNAL);
 			return;
 		}
-
-		if(fcount && pa_stream_get_state(outstream) == PA_STREAM_READY)
-		{
-			if(tlength && outbuffer_length > tlength*2)
-			{
-#ifdef DEBUG_LATENCY
-				printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
-#endif
-				outbuffer_index += outbuffer_length - tlength;
-				outbuffer_length = tlength;
-#ifdef DEBUG_LATENCY
-				printf("outbuffer_length = %zu\n", outbuffer_length);
-#endif
-			}
-
-			do_stream_write(outstream, pa_stream_writable_size(outstream));
-		}
 	}
 #ifdef DEBUG_LATENCY
 	else if(state==IEC61937)
@@ -970,22 +965,10 @@ static void decode_data(const void *data, size_t length, void *userdata)
    		outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + length);
    		memcpy((uint8_t*) outbuffer + outbuffer_index + outbuffer_length, data, length);
    		outbuffer_length += length;
-
-		if(tlength && outbuffer_length > tlength*2)
-		{
-#ifdef DEBUG_LATENCY
-			printf("Outbuffer is too long (%zu > %u*2). Flushing it to reduce latency. Sorry for that!\n", outbuffer_length, tlength);
-#endif
-			outbuffer_index += outbuffer_length - tlength;
-			outbuffer_length = tlength;
-#ifdef DEBUG_LATENCY
-			printf("outbuffer_length = %zu\n", outbuffer_length);
-#endif
-		}
-
-		if(pa_stream_get_state(outstream) == PA_STREAM_READY)
-			do_stream_write(outstream, pa_stream_writable_size(outstream));
 	}
+
+	if(pa_stream_get_state(outstream) == PA_STREAM_READY)
+		stream_write_callback(outstream, pa_stream_writable_size(outstream), NULL);
 }
 
 /* This is called whenever new data may is available */
