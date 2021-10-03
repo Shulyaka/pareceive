@@ -967,7 +967,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
    		outbuffer_length += length;
 	}
 
-	if(pa_stream_get_state(outstream) == PA_STREAM_READY)
+	if(outstream && pa_stream_get_state(outstream) == PA_STREAM_READY)
 		stream_write_callback(outstream, pa_stream_writable_size(outstream), NULL);
 }
 
