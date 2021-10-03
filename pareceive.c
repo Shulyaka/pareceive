@@ -332,7 +332,6 @@ static void do_stream_write(pa_stream *s, size_t length)
 /* This is called whenever new data may be written to the stream */
 static void stream_write_callback(pa_stream *s, size_t length, void *userdata)
 {
-	assert(length >= 0);
 	assert(s);
 
 	if (!length || !outbuffer)
