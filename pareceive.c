@@ -51,6 +51,7 @@ enum state {NOSIGNAL, PCM, IEC61937} state=NOSIGNAL;
 static AVFormatContext *avformatcontext = NULL;
 static AVCodecContext *avcodeccontext = NULL;
 static AVFrame *avframe;
+static AVPacket *pkt;
 
 static SwrContext *swrcontext = NULL;
 enum AVSampleFormat swroutformat = AV_SAMPLE_FMT_NONE;
@@ -718,7 +719,6 @@ int iec61937_suspect(const uint8_t* data, size_t length)
 static void decode_data(const void *data, size_t length, void *userdata)
 {
 	int i=0;
-	static AVPacket pkt;
 	static size_t prevextralength = 0;
 
 	assert(data);
@@ -849,11 +849,10 @@ static void decode_data(const void *data, size_t length, void *userdata)
 											0, NULL);
 			swr_init(swrcontext);
 
-			out_bytes_per_sample = av_get_bytes_per_sample(swroutformat) * avcodeccontext->channels;
+			out_bytes_per_sample = av_get_bytes_per_sample(swroutformat) * (size_t)avcodeccontext->channels;
 
-			av_init_packet(&pkt);
-			pkt.data = NULL;
-			pkt.size = 0;
+			pkt->data = NULL;
+			pkt->size = 0;
 
 			set_instream_fragsize(block_size * 2);
 
@@ -868,11 +867,10 @@ static void decode_data(const void *data, size_t length, void *userdata)
 	if(state==IEC61937 && inbuffer_length > avformatcontext->pb->buffer_size * 2)
 	{
 		int pcount=0, fcount=0;
-		while ( inbuffer_length > avformatcontext->pb->buffer_size * 2 && (i = av_read_frame(avformatcontext, &pkt)) >= 0)
+		while ( inbuffer_length > avformatcontext->pb->buffer_size * 2 && (i = av_read_frame(avformatcontext, pkt)) >= 0)
 		{
 			pcount++;
-			int ret = avcodec_send_packet(avcodeccontext, &pkt);
-			av_packet_unref(&pkt);
+			int ret = avcodec_send_packet(avcodeccontext, pkt);
 			if(ret<0)
 			{
 				print_averror("avcodec_send_packet", ret);
@@ -912,7 +910,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 		}
 
 		int missed_frames = (length+prevextralength) / avformatcontext->pb->buffer_size;
-		prevextralength += length - missed_frames * avformatcontext->pb->buffer_size;
+		prevextralength += length - (unsigned long)missed_frames * avformatcontext->pb->buffer_size;
 		missed_frames -= fcount;
 		if (missed_frames < 0)
 		{
@@ -1142,6 +1140,7 @@ int main(int argc, char *argv[])
 		server = argv[3];
 
 	avframe = av_frame_alloc();
+	pkt = av_packet_alloc();
 
 	/* Set up a new main loop */
 	if (!(m = pa_mainloop_new()))
@@ -1201,6 +1200,7 @@ int main(int argc, char *argv[])
 	}
 
 quit:
+	av_packet_free(&pkt);
 	av_frame_free(&avframe);
 
 	set_state(NOSIGNAL);
