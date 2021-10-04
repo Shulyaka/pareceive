@@ -65,16 +65,29 @@ static void quit(int ret)
 }
 
 /* Connection draining complete */
-static void context_drain_complete(pa_context*c, void *userdata)
+static void context_drain_complete(pa_context *c, void *userdata)
 {
 	pa_context_disconnect(c);
 }
 
-/* Stream draining complete */
-static void stream_drain_complete(pa_stream*s, int success, void *userdata)
+/* Start connection draining */
+static void start_context_drain(pa_context *c)
 {
 	pa_operation *o = NULL;
 
+	if (verbose)
+		fprintf(stderr, "Draining connection to server.\n");
+	if (!(o = pa_context_drain(c, context_drain_complete, NULL)))
+		pa_context_disconnect(c);
+	else
+	{
+		pa_operation_unref(o);
+	}
+}
+
+/* Stream draining complete */
+static void stream_drain_complete(pa_stream *s, int success, void *userdata)
+{
 	if (!success)
 	{
 		fprintf(stderr, "Failed to drain stream: %s\n", pa_strerror(pa_context_errno(context)));
@@ -92,21 +105,12 @@ static void stream_drain_complete(pa_stream*s, int success, void *userdata)
 		outstream = NULL;
 
 		if (!instream && !stdio_event)
-		{
-			if (verbose)
-				fprintf(stderr, "Draining connection to server.\n");
-			if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
-				pa_context_disconnect(context);
-			else
-			{
-				pa_operation_unref(o);
-			}
-		}
+			start_context_drain(context);
 	}
 }
 
 /* Start draining */
-static void start_drain(pa_stream*s)
+static void start_drain(pa_stream *s)
 {
 	pa_operation *o;
 
@@ -117,16 +121,7 @@ static void start_drain(pa_stream*s)
 	{
 		fprintf(stderr, "The output stream has not been created\n");
 		if (!instream && !stdio_event)
-		{
-			if (verbose)
-				fprintf(stderr, "Draining connection to server.\n");
-			if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
-				pa_context_disconnect(context);
-			else
-			{
-				pa_operation_unref(o);
-			}
-		}
+			start_context_drain(context);
 		return;
 	}
 	if(pa_stream_get_state(s) == PA_STREAM_CREATING)
@@ -622,7 +617,7 @@ void set_state(enum state newstate)
 
 	if (outstream)
 	{
-		if(outstream && pa_stream_get_state(outstream) == PA_STREAM_READY)
+		if(pa_stream_get_state(outstream) == PA_STREAM_READY)
 			stream_write_callback(outstream, pa_stream_writable_size(outstream), NULL);
 		pa_stream_set_write_callback(outstream, NULL, NULL);
 		start_drain(outstream);
@@ -1118,13 +1113,13 @@ fail:
 }
 
 /* UNIX signal to quit recieved */
-static void exit_signal_callback(pa_mainloop_api*m, pa_signal_event *e, int sig, void *userdata)
+static void exit_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int sig, void *userdata)
 {
 	fprintf(stderr, "Got signal, exiting.\n");
 	quit(0);
 }
 
-static void sigusr1_signal_callback(pa_mainloop_api*m, pa_signal_event *e, int sig, void *userdata)
+static void sigusr1_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int sig, void *userdata)
 {
 	return;
 }
