@@ -15,6 +15,7 @@ jobs:
     - compiler: gcc
       env:
         - COMPILER=gcc
+        - COVERAGE=${COVERALLS_REPO_TOKEN:+Y}
     - compiler: clang
       env:
         - COMPILER=clang
@@ -26,5 +27,8 @@ before_install:
   - export CXX="$COMPILER"
   - export CC="$COMPILER"
   - ${CXX} --version
+  - test "$COVERAGE" = "Y" && pip install --user cpp-coveralls || echo "Coveralls reporting skipped"
 before_script:
   - dbus-launch pulseaudio --start
+after_success:
+  - test "$COVERAGE" = "Y" && coveralls --exclude /usr/include/ || echo "Coveralls reporting skipped"
