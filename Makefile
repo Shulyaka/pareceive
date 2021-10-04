@@ -1,3 +1,9 @@
+ifeq ($(COVERAGE),Y)
+	CFLAGS+=--coverage
+	LDFLAGS+=--coverage
+	DEBUG=Y
+endif
+
 ifeq ($(DEBUG),Y)
 	CFLAGS+=-ggdb -O0 -Wall -DDEBUG
 	LDFLAGS+=-ggdb
