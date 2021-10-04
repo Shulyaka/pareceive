@@ -1,3 +1,4 @@
+[![Codacy Badge](https://api.codacy.com/project/badge/Grade/41e42cb712ba443eacf8b355cb6a32ec)](https://app.codacy.com/gh/Shulyaka/pareceive?utm_source=github.com&utm_medium=referral&utm_content=Shulyaka/pareceive&utm_campaign=Badge_Grade_Settings)
 # pareceive [![Build Status](https://app.travis-ci.com/Shulyaka/pareceive.svg?branch=master)](https://app.travis-ci.com/Shulyaka/pareceive) [![Total alerts](https://img.shields.io/lgtm/alerts/g/Shulyaka/pareceive.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/Shulyaka/pareceive/alerts/) [![Language grade: C/C++](https://img.shields.io/lgtm/grade/cpp/g/Shulyaka/pareceive.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/Shulyaka/pareceive/context:cpp)
 S/PDIF receiver with support of compressed formats
 
