@@ -84,47 +84,60 @@ static void stream_drain_complete(pa_stream*s, int success, void *userdata)
 	if (verbose)
 		fprintf(stderr, "Playback stream drained.\n");
 
-	pa_stream_disconnect(outstream);
-	pa_stream_unref(outstream);
-	outstream = NULL;
+	pa_stream_disconnect(s);
+	pa_stream_unref(s);
 
-	if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
-		pa_context_disconnect(context);
-	else
+	if(s == outstream)
 	{
-		pa_operation_unref(o);
-		if (verbose)
-			fprintf(stderr, "Draining connection to server.\n");
+		outstream = NULL;
+
+		if (!instream && !stdio_event)
+		{
+			if (verbose)
+				fprintf(stderr, "Draining connection to server.\n");
+			if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
+				pa_context_disconnect(context);
+			else
+			{
+				pa_operation_unref(o);
+			}
+		}
 	}
 }
 
 /* Start draining */
-static void start_drain(void)
+static void start_drain(pa_stream*s)
 {
 	pa_operation *o;
 
-	if(!outstream)
+	if(verbose)
+		fprintf(stderr, "Draining output stream\n");
+
+	if(!s && !outstream)
 	{
 		fprintf(stderr, "The output stream has not been created\n");
-		if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
-			pa_context_disconnect(context);
-		else
+		if (!instream && !stdio_event)
 		{
-			pa_operation_unref(o);
 			if (verbose)
 				fprintf(stderr, "Draining connection to server.\n");
+			if (!(o = pa_context_drain(context, context_drain_complete, NULL)))
+				pa_context_disconnect(context);
+			else
+			{
+				pa_operation_unref(o);
+			}
 		}
 		return;
 	}
-	if(pa_stream_get_state(outstream) == PA_STREAM_CREATING)
+	if(pa_stream_get_state(s) == PA_STREAM_CREATING)
 	{
 		fprintf(stderr, "The output stream is still being created\n");
 		return;
 	}
 
-	pa_stream_set_write_callback(outstream, NULL, NULL);
+	pa_stream_set_write_callback(s, NULL, NULL);
 
-	if (!(o = pa_stream_drain(outstream, stream_drain_complete, NULL)))
+	if (!(o = pa_stream_drain(s, stream_drain_complete, NULL)))
 	{
 		fprintf(stderr, "pa_stream_drain(): %s\n", pa_strerror(pa_context_errno(context)));
 		quit(1);
@@ -171,7 +184,11 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 	switch (pa_stream_get_state(s))
 	{
 		case PA_STREAM_CREATING:
+			break;
+
 		case PA_STREAM_TERMINATED:
+			if(verbose)
+				fprintf(stderr, "Stream terminated.\n");
 			break;
 
 		case PA_STREAM_READY:
@@ -256,7 +273,7 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 		fprintf(stderr, "Stream started.\n");
 
 	if (!instream && !stdio_event)
-		start_drain();
+		start_drain(s);
 }
 
 static void stream_moved_callback(pa_stream *s, void *userdata)
@@ -599,15 +616,16 @@ void set_instream_fragsize(uint32_t fragsize)
 void set_state(enum state newstate)
 {
 	enum state oldstate = state;
-	AVIOContext *aviocontext;
 
 	if(oldstate == newstate)
 		return;
 
 	if (outstream)
 	{
-		pa_stream_disconnect(outstream);
-		pa_stream_unref(outstream);
+		if(outstream && pa_stream_get_state(outstream) == PA_STREAM_READY)
+			stream_write_callback(outstream, pa_stream_writable_size(outstream), NULL);
+		pa_stream_set_write_callback(outstream, NULL, NULL);
+		start_drain(outstream);
 		outstream = NULL;
 		out_sample_spec = in_sample_spec;
 		fprintf(stderr, "Closed output stream\n");
@@ -629,7 +647,7 @@ void set_state(enum state newstate)
 		case IEC61937:
 			if(avformatcontext)
 			{
-				aviocontext = avformatcontext->pb;
+				AVIOContext *aviocontext = avformatcontext->pb;
 				av_free(aviocontext->buffer);
 				av_free(aviocontext);
 				avformat_close_input(&avformatcontext);
@@ -775,7 +793,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 		if(!avformatcontext)
 		{
-			size_t block_size = iec61937_validate(inbuffer + inbuffer_index, inbuffer_length);
+			size_t block_size = iec61937_validate((uint8_t*) inbuffer + inbuffer_index, inbuffer_length);
 			if (block_size == 0)
 			{
 #ifdef DEBUG_LATENCY
@@ -893,7 +911,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			{
 				size_t addlen = swr_get_out_samples(swrcontext, avframe->nb_samples) * out_bytes_per_sample;
    				outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + addlen);
-				uint8_t *outptr = outbuffer + outbuffer_length;
+				uint8_t *outptr = (uint8_t*) outbuffer + outbuffer_length;
 				outbuffer_length += swr_convert(swrcontext, &outptr, addlen, (const uint8_t **)avframe->extended_data, avframe->nb_samples) * out_bytes_per_sample;
 
 				fcount++;
@@ -1011,9 +1029,9 @@ static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_eve
 		if (verbose)
 			fprintf(stderr, "Got EOF.\n");
 
-		start_drain();
 		mainloop_api->io_free(stdio_event);
 		stdio_event = NULL;
+		start_drain(outstream);
 		return;
 	}
 	else if (r < 0 && errno != EWOULDBLOCK)
