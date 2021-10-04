@@ -1,0 +1,1 @@
+Playing IEC61937: Audio: ac3, 48000 Hz, stereo, fltp, 192 kb/s Using sample spec 'float32le 2ch 48000Hz', channel map 'front-left,front-right'.

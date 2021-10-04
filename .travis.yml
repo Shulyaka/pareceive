@@ -1,7 +1,7 @@
 language: c
 os: linux
 dist: bionic
-script: make
+script: make tests
 addons:
   apt:
     packages:
@@ -9,6 +9,7 @@ addons:
     - libavcodec-dev
     - libavformat-dev
     - libswresample-dev
+    - pulseaudio
 jobs:
   include:
     - compiler: gcc
@@ -25,3 +26,5 @@ before_install:
   - export CXX="$COMPILER"
   - export CC="$COMPILER"
   - ${CXX} --version
+before_script:
+  - dbus-launch pulseaudio --start

@@ -1,0 +1,1 @@
+Playing PCM Using sample spec 's16le 2ch 48000Hz', channel map 'front-left,front-right'.
