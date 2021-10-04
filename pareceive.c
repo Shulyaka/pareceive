@@ -336,7 +336,7 @@ static void do_stream_write(pa_stream *s, size_t length)
 	}
 	else if(outbuffer_index > 4*1024)
 	{
-		memmove((uint8_t*)outbuffer, (uint8_t*)outbuffer + outbuffer_index, outbuffer_length);
+		memmove((uint8_t*) outbuffer, (uint8_t*) outbuffer + outbuffer_index, outbuffer_length);
 		outbuffer = pa_xrealloc(outbuffer, outbuffer_length);
 		outbuffer_index = 0;
 	}
@@ -482,7 +482,6 @@ void map_channel_layout(pa_channel_map* channel_map, uint64_t channel_layout)
 
 void open_output_stream(void)
 {
-	int r;
 	pa_channel_map out_channel_map;
 	pa_buffer_attr buffer_attr;
 
@@ -540,7 +539,7 @@ void open_output_stream(void)
 	pa_stream_set_event_callback(outstream, stream_event_callback, NULL);
 	pa_stream_set_buffer_attr_callback(outstream, stream_buffer_attr_callback, NULL);
 
-	if ((r = pa_stream_connect_playback(outstream, outdevice, &buffer_attr, outflags, NULL, NULL)) < 0)
+	if (pa_stream_connect_playback(outstream, outdevice, &buffer_attr, outflags, NULL, NULL) < 0)
 	{
 		fprintf(stderr, "pa_stream_connect_playback() failed: %s\n", pa_strerror(pa_context_errno(context)));
 		quit(1);
@@ -572,7 +571,7 @@ static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 	}
 	else if(inbuffer_index > 4*1024)
 	{
-		memmove((uint8_t*)inbuffer, (uint8_t*)inbuffer + inbuffer_index, inbuffer_length);
+		memmove((uint8_t*) inbuffer, (uint8_t*) inbuffer + inbuffer_index, inbuffer_length);
 		inbuffer = pa_xrealloc(inbuffer, inbuffer_length);
 		inbuffer_index = 0;
 	}
@@ -656,7 +655,7 @@ void set_state(enum state newstate)
 					if(newstate == PCM)
 					{
 				   		outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + inbuffer_length);
-				   		memcpy((uint8_t*) outbuffer + outbuffer_index + outbuffer_length, inbuffer + inbuffer_index, inbuffer_length);
+				   		memcpy((uint8_t*) outbuffer + outbuffer_index + outbuffer_length, (uint8_t*) inbuffer + inbuffer_index, inbuffer_length);
 				   		outbuffer_length += inbuffer_length;
 					}
 
@@ -751,7 +750,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 	if(state==NOSIGNAL)
 	{
 		for(i=0; i<length/sizeof(uint32_t); i++)
-			if(((uint32_t*)data)[i])
+			if(((uint32_t*) data)[i])
 				break;
 		if(i<length/sizeof(uint32_t))
 			set_state(IEC61937);
@@ -760,7 +759,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 	{
 		static pa_usec_t silence=0;
 		for(i=0; i<length/sizeof(uint32_t); i++)
-			if(((uint32_t*)data)[i])
+			if(((uint32_t*) data)[i])
 				break;
 		if(i<length/sizeof(uint32_t))
 		{
@@ -783,7 +782,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 	if(state==IEC61937)
 	{
    		inbuffer = pa_xrealloc(inbuffer, inbuffer_index + inbuffer_length + length - i*sizeof(uint32_t));
-   		memcpy((uint8_t*) inbuffer + inbuffer_index + inbuffer_length, (uint32_t*)data + i, length - i*sizeof(uint32_t));
+   		memcpy((uint8_t*) inbuffer + inbuffer_index + inbuffer_length, (uint32_t*) data + i, length - i*sizeof(uint32_t));
    		inbuffer_length += length - i*sizeof(uint32_t);
 
 		if(!avformatcontext)
@@ -907,7 +906,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 				size_t addlen = swr_get_out_samples(swrcontext, avframe->nb_samples) * out_bytes_per_sample;
    				outbuffer = pa_xrealloc(outbuffer, outbuffer_index + outbuffer_length + addlen);
 				uint8_t *outptr = (uint8_t*) outbuffer + outbuffer_length;
-				outbuffer_length += swr_convert(swrcontext, &outptr, addlen, (const uint8_t **)avframe->extended_data, avframe->nb_samples) * out_bytes_per_sample;
+				outbuffer_length += swr_convert(swrcontext, &outptr, addlen, (const uint8_t **) avframe->extended_data, avframe->nb_samples) * out_bytes_per_sample;
 
 				fcount++;
 				av_frame_unref(avframe);
