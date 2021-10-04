@@ -9,6 +9,8 @@ LDFLAGS+=-lpulse -lavformat -lavutil -lavcodec -lswresample
 
 .PHONY: clean install all tests
 
+SHELL = /bin/bash
+
 all: pareceive
 
 pareceive: pareceive.o

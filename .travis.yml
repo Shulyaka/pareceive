@@ -1,7 +1,7 @@
 language: c
 os: linux
 dist: bionic
-script: bash -c "make tests"
+script: make tests
 addons:
   apt:
     packages:
