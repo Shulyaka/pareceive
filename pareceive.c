@@ -540,7 +540,7 @@ void open_output_stream(void)
 		out_sample_spec.rate = avcodeccontext->sample_rate;
 		out_sample_spec.channels = avcodeccontext->channels;
 		map_channel_layout(&out_channel_map, avcodeccontext->channel_layout);
-		tlength = avformatcontext->pb->buffer_size / 4 * out_bytes_per_sample * 2;
+		tlength = avformatcontext->pb->buffer_size / 4 * out_bytes_per_sample * 2;    //block length??????????
 	}
 	else
 	{
@@ -594,6 +594,23 @@ void open_output_stream(void)
 	return;
 }
 
+void set_instream_fragsize(uint32_t fragsize)
+{
+	if(instream)
+	{
+		pa_buffer_attr buffer_attr;
+		memcpy(&buffer_attr, pa_stream_get_buffer_attr(instream), sizeof(pa_buffer_attr));
+		buffer_attr.fragsize = fragsize;
+		pa_operation_unref(pa_stream_set_buffer_attr(instream, &buffer_attr, stream_set_buffer_attr_callback, NULL));
+	}
+	else
+	{
+		stdin_fragsize = fragsize == (uint32_t) -1 ? MAX_STDIN_READ : fragsize;
+		if(stdin_fragsize > MAX_STDIN_READ)
+			stdin_fragsize = MAX_STDIN_READ;
+	}
+}
+
 static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 {
 	size_t l = buf_size;
@@ -622,6 +639,8 @@ static int readFunction(void* opaque, uint8_t* buf, int buf_size)
 		inbuffer_index = 0;
 	}
 
+	set_instream_fragsize(buf_size);
+
 	return l;
 }
 
@@ -634,23 +653,6 @@ void print_averror(const char *str, int err)
 		errbuf_ptr = strerror(AVUNERROR(err));
 
 	fprintf(stderr, "%s: %s\n", str, errbuf_ptr);
-}
-
-void set_instream_fragsize(uint32_t fragsize)
-{
-	if(instream)
-	{
-		pa_buffer_attr buffer_attr;
-		memcpy(&buffer_attr, pa_stream_get_buffer_attr(instream), sizeof(pa_buffer_attr));
-		buffer_attr.fragsize = fragsize;
-		pa_operation_unref(pa_stream_set_buffer_attr(instream, &buffer_attr, stream_set_buffer_attr_callback, NULL));
-	}
-	else
-	{
-		stdin_fragsize = fragsize == (uint32_t) -1 ? MAX_STDIN_READ : fragsize;
-		if(stdin_fragsize > MAX_STDIN_READ)
-			stdin_fragsize = MAX_STDIN_READ;
-	}
 }
 
 void set_state(enum state newstate)
@@ -727,67 +729,15 @@ void set_state(enum state newstate)
 	}
 }
 
-#define SPDIF_MAX_OFFSET 16384*10
-
-// returns 0 if data is too small for examination, 1 if validation fails and a block size (aka offset) if validation is successful
-size_t iec61937_validate(const uint8_t* data, size_t length)
-{
-	static const uint32_t magic = 0x4E1FF872;
-	size_t firstmagic, secondmagic;
-
-	for(firstmagic = 0; firstmagic < length-sizeof(uint32_t)+1; firstmagic++)
-		if(*(uint32_t*)(data+firstmagic) == magic)
-			break;
-
-	if(firstmagic == length-sizeof(uint32_t)+1)
-	{
-		if(length < SPDIF_MAX_OFFSET)
-			return 0;
-		else
-			return 1;
-	}
-
-	for(secondmagic = firstmagic + ((*(uint16_t*)(data+firstmagic+6))>>3) + 8; secondmagic < length-sizeof(uint32_t)+1; secondmagic++)
-		if(*(uint32_t*)(data+secondmagic) == magic)
-			break;
-
-	if(secondmagic == length-sizeof(uint32_t)+1)
-	{
-		if(length < SPDIF_MAX_OFFSET * 2)
-			return 0;
-		else
-			return 1;
-	}
-
-	secondmagic -= firstmagic;
-
-	if(secondmagic > SPDIF_MAX_OFFSET)
-		return 1;
-
-	if(length < secondmagic * 2)
-		return 0;
-
-	return secondmagic;
-}
-
-//returns 1 if magic found, 0 if not
-int iec61937_suspect(const uint8_t* data, size_t length)
-{
-	static const uint32_t magic = 0x4E1FF872;
-	size_t firstmagic;
-
-	for(firstmagic = 0; firstmagic < length-sizeof(uint32_t)+1; firstmagic++)
-		if(*(uint32_t*)(data+firstmagic) == magic)
-			break;
-
-	return (firstmagic == length-sizeof(uint32_t)+1) ? 0 : 1;
-}
+#define SPDIF_MAX_OFFSET 24576
 
 /* Process new data */
 static void decode_data(const void *data, size_t length, void *userdata)
 {
 	int i=0;
 	static size_t prevextralength = 0;
+	static AVProbeData iec61937_probedata = {0};
+	static int (*spdif_probe)(const AVProbeData *) = NULL;
 
 	assert(data);
 	assert(length > 0);
@@ -832,37 +782,29 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 		if(!avformatcontext)
 		{
-			size_t block_size = iec61937_validate((uint8_t*) inbuffer + inbuffer_index, inbuffer_length);
-			if (block_size == 0)
+			if(inbuffer_length < SPDIF_MAX_OFFSET)
 			{
 #ifdef DEBUG_LATENCY
 				fprintf(stderr, "Buffer is too small, waiting for more data\n");
 #endif
 				return;
 			}
-			else if(block_size == 1)
+
+			if(!spdif_probe)
+				spdif_probe = av_find_input_format("spdif")->read_probe;
+			iec61937_probedata.buf = inbuffer + inbuffer_index;
+			iec61937_probedata.buf_size = inbuffer_length;
+			if(!spdif_probe(&iec61937_probedata))
 			{
 				fprintf(stderr, "IEC61937 validation failed\n");
 				set_state(PCM);
 				return;
 			}
 
-#ifdef DEBUG_LATENCY
-			fprintf(stderr, "block_size=%zu\n", block_size);
-#endif
-	
-			if(inbuffer_length < block_size * 3)
-			{
-#ifdef DEBUG_LATENCY
-				fprintf(stderr, "Buffer is too small, waiting for more data\n");
-#endif
-				return;
-			}
-
 			prevextralength = inbuffer_length;
 
 			avformatcontext = avformat_alloc_context();
-			avformatcontext->pb = avio_alloc_context(av_malloc(block_size), block_size, 0, NULL, readFunction, NULL, NULL);
+			avformatcontext->pb = avio_alloc_context(av_malloc(SPDIF_MAX_OFFSET), SPDIF_MAX_OFFSET, 0, NULL, readFunction, NULL, NULL);
 			if( (i = avformat_open_input(&avformatcontext, input_device_name, av_find_input_format("spdif"), NULL)) < 0)
 			{
 				print_averror("avformat_open_input", i);
@@ -921,8 +863,6 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 			pkt->data = NULL;
 			pkt->size = 0;
-
-			set_instream_fragsize(block_size * 2);
 
 			open_output_stream();
 
@@ -1009,7 +949,11 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 	if(state==PCM)
 	{
-		if(iec61937_suspect(data, length))
+		if(!spdif_probe)
+			spdif_probe = av_find_input_format("spdif")->read_probe;
+		iec61937_probedata.buf = (unsigned char *)data;
+		iec61937_probedata.buf_size = length;
+		if(spdif_probe(&iec61937_probedata))
 		{
 			printf("Suspected IEC61937\n");
 			set_state(IEC61937);
