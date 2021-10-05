@@ -590,8 +590,6 @@ void open_output_stream(void)
 		fprintf(stderr, "pa_stream_connect_playback() failed: %s\n", pa_strerror(pa_context_errno(context)));
 		quit(1);
 	}
-
-	return;
 }
 
 void set_instream_fragsize(uint32_t fragsize)
