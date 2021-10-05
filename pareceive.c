@@ -40,6 +40,7 @@ static pa_sample_spec in_sample_spec =
 pa_sample_spec out_sample_spec;
 
 const char* input_device_name = "stdin";
+#define PA_MAX_BUF (1024*1024*96)
 #define MAX_STDIN_READ 16384
 size_t stdin_fragsize = 0;
 
@@ -1048,7 +1049,7 @@ static void stream_read_callback(pa_stream *s, size_t length, void *userdata)
 static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_event_flags_t f, void *userdata)
 {
 	uint8_t buf[MAX_STDIN_READ];
-	ssize_t r;
+	ssize_t r=1;
 
 	assert(a == mainloop_api);
 	assert(e);
@@ -1057,7 +1058,7 @@ static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_eve
 	if(!stdin_fragsize)
 		return;
 
-	while((r = read(fd, &buf, stdin_fragsize)) > 0)
+	while(outbuffer_index + outbuffer_length + stdin_fragsize < PA_MAX_BUF && (r = read(fd, &buf, stdin_fragsize)) > 0)
 	{
 		decode_data(buf, r, userdata);
 	}
