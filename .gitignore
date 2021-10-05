@@ -54,3 +54,7 @@ dkms.conf
 
 # Source tag file
 tags
+
+# gcov Data Files
+*.gcda
+*.gcno
