@@ -142,6 +142,27 @@ static void start_drain(pa_stream *s)
 	pa_operation_unref(o);
 }
 
+/* Updating stream timing info complete */
+static void stream_timing_complete(pa_stream *s, int success, void *userdata)
+{
+	if (!success)
+	{
+		fprintf(stderr, "Failed to update timing info for the stream: %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+	}
+
+	if(verbose)
+	{
+		pa_usec_t r_usec;
+		int negative;
+		int r;
+		if(!(r=pa_stream_get_latency(s, &r_usec, &negative)))
+			fprintf(stderr, "Stream latency %s%ld usec\n", (negative?"-":""), r_usec);
+		else
+			fprintf(stderr, "pa_stream_get_latency=%d\n", r);
+	}
+}
+
 static void stream_set_buffer_attr_callback(pa_stream *s, int success, void *userdata)
 {
 	assert(s);
@@ -269,6 +290,19 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 
 	if (!instream && !stdio_event)
 		start_drain(s);
+	else
+	{
+		pa_operation *o;
+
+		if (!(o = pa_stream_update_timing_info(s, stream_timing_complete, NULL)))
+		{
+			fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+			quit(1);
+			return;
+		}
+
+		pa_operation_unref(o);
+	}
 }
 
 static void stream_moved_callback(pa_stream *s, void *userdata)
@@ -287,10 +321,21 @@ static void stream_moved_callback(pa_stream *s, void *userdata)
 
 static void stream_buffer_attr_callback(pa_stream *s, void *userdata)
 {
+	pa_operation *o;
+
 	assert(s);
 
 	if (verbose)
 		fprintf(stderr, "Stream buffer attributes changed.\n");
+
+	if (!(o = pa_stream_update_timing_info(s, stream_timing_complete, NULL)))
+	{
+		fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+		return;
+	}
+
+	pa_operation_unref(o);
 }
 
 static void stream_event_callback(pa_stream *s, const char *name, pa_proplist *pl, void *userdata)
@@ -641,9 +686,8 @@ void set_state(enum state newstate)
 		case IEC61937:
 			if(avformatcontext)
 			{
-				AVIOContext *aviocontext = avformatcontext->pb;
-				av_free(aviocontext->buffer);
-				av_free(aviocontext);
+				av_free(avformatcontext->pb->buffer);
+				av_free(avformatcontext->pb);
 				avformat_close_input(&avformatcontext);
 				avcodec_free_context(&avcodeccontext);
 				swr_free(&swrcontext);
