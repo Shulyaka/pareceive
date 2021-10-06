@@ -56,7 +56,7 @@ static AVPacket *pkt;
 
 static SwrContext *swrcontext = NULL;
 enum AVSampleFormat swroutformat = AV_SAMPLE_FMT_NONE;
-size_t out_bytes_per_sample;
+size_t out_bytes_per_sample = 4;
 
 /* A shortcut for terminating the application */
 static void quit(int ret)
@@ -691,6 +691,7 @@ void set_state(enum state newstate)
 				avcodec_free_context(&avcodeccontext);
 				swr_free(&swrcontext);
 				avformatcontext = NULL;
+				out_bytes_per_sample = 4;
 			}
 
 			if(inbuffer)
@@ -1056,7 +1057,7 @@ static void stdin_callback(pa_mainloop_api *a, pa_io_event *e, int fd, pa_io_eve
 	if(!stdin_fragsize)
 		return;
 
-	while(outbuffer_index + outbuffer_length + stdin_fragsize < PA_MAX_BUF && (r = read(fd, &buf, stdin_fragsize)) > 0)
+	while(outbuffer_index + outbuffer_length + stdin_fragsize*out_bytes_per_sample/4 < PA_MAX_BUF && (r = read(fd, &buf, stdin_fragsize)) > 0)
 	{
 		decode_data(buf, r, userdata);
 	}
