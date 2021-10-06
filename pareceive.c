@@ -790,7 +790,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 			if(!spdif_probe)
 				spdif_probe = av_find_input_format("spdif")->read_probe;
-			iec61937_probedata.buf = inbuffer + inbuffer_index;
+			iec61937_probedata.buf = (uint8_t*) inbuffer + inbuffer_index;
 			iec61937_probedata.buf_size = inbuffer_length;
 			if(!spdif_probe(&iec61937_probedata))
 			{
