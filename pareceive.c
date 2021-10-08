@@ -291,12 +291,6 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 {
 	assert(s);
 
-	if(s == instream)
-	{
-		in_sample_spec = *pa_stream_get_sample_spec(s);
-		input_device_name = pa_stream_get_device_name(s);
-	}
-
 	if (verbose)
 		fprintf(stderr, "Stream started.\n");
 
@@ -319,7 +313,12 @@ static void stream_started_callback(pa_stream *s, void *userdata)
 
 static void stream_moved_callback(pa_stream *s, void *userdata)
 {
+	pa_operation *o;
+
 	assert(s);
+
+	if (verbose)
+		fprintf(stderr, "Stream moved to device %s (%u, %ssuspended).\n", pa_stream_get_device_name(s), pa_stream_get_device_index(s), pa_stream_is_suspended(s) ? "" : "not ");
 
 	if(s == instream)
 	{
@@ -327,8 +326,14 @@ static void stream_moved_callback(pa_stream *s, void *userdata)
 		input_device_name = pa_stream_get_device_name(s);
 	}
 
-	if (verbose)
-		fprintf(stderr, "Stream moved to device %s (%u, %ssuspended).\n", pa_stream_get_device_name(s), pa_stream_get_device_index(s), pa_stream_is_suspended(s) ? "" : "not ");
+	if (!(o = pa_stream_update_timing_info(s, stream_timing_complete, NULL)))
+	{
+		fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+		return;
+	}
+
+	pa_operation_unref(o);
 }
 
 static void stream_buffer_attr_callback(pa_stream *s, void *userdata)
