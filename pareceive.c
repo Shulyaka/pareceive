@@ -158,7 +158,7 @@ static void stream_timing_complete(pa_stream *s, int success, void *userdata)
 		int negative;
 		int r;
 		if(!(r=pa_stream_get_latency(s, &r_usec, &negative)))
-			fprintf(stderr, "Stream latency %s%ld usec\n", (negative?"-":""), r_usec);
+			fprintf(stderr, "%s stream latency %s%ld usec\n", (s==instream?"Input":"Output"), (negative?"-":""), r_usec);
 		else
 			fprintf(stderr, "pa_stream_get_latency=%d\n", r);
 	}
@@ -234,8 +234,19 @@ static void stream_state_callback(pa_stream *s, void *userdata)
 
 			if(s == instream)
 			{
+				pa_operation *o;
+
 				in_sample_spec = *pa_stream_get_sample_spec(s);
 				input_device_name = pa_stream_get_device_name(s);
+
+				if (!(o = pa_stream_update_timing_info(s, stream_timing_complete, NULL)))
+				{
+					fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+					quit(1);
+					return;
+				}
+
+				pa_operation_unref(o);
 			}
 
 			break;
