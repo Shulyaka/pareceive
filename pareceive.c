@@ -1180,7 +1180,37 @@ static void exit_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int sig
 
 static void sigusr1_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int sig, void *userdata)
 {
-	return;
+	pa_operation *o;
+
+	if(instream)
+	{
+		if (!(o = pa_stream_update_timing_info(instream, stream_timing_complete, NULL)))
+		{
+			fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+			quit(1);
+			return;
+		}
+
+		pa_operation_unref(o);
+	}
+
+	if(outstream)
+	{
+		if (!(o = pa_stream_update_timing_info(outstream, stream_timing_complete, NULL)))
+		{
+			fprintf(stderr, "pa_stream_update_timing_info(): %s\n", pa_strerror(pa_context_errno(context)));
+			quit(1);
+			return;
+		}
+
+		pa_operation_unref(o);
+	}
+
+	if(verbose)
+	{
+		fprintf(stderr, "Input buffer %ld usec\n", pa_bytes_to_usec(inbuffer_length, &in_sample_spec));
+		fprintf(stderr, "Output buffer %ld usec\n", (outstream?pa_bytes_to_usec(outbuffer_length, &out_sample_spec):0));
+	}
 }
 
 int main(int argc, char *argv[])
