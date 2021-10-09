@@ -32,9 +32,11 @@ install: pareceive
 	cp pareceive /usr/local/bin/
 
 tests: pareceive
-	./pareceive -h | grep -q "Usage:"
-	./pareceive --help | grep -q "Usage:"
-	./pareceive too many arguments provided | grep -q "Usage:"
+	LANG=C ./pareceive -h | grep -q "Usage:"
+	LANG=C ./pareceive --help | grep -q "Usage:"
+	LANG=C ./pareceive too many arguments provided | grep -q "Usage:"
+	LANG=C ./pareceive input output 127.0.0.2 2>&1 | grep -q "Connection refused"
+	LANG=C ./pareceive - output 127.0.0.2 2>&1 | grep -q "Connection refused"
 	@for i in tests/*.sdf; do echo -e "\ncat $$i | ./pareceive -"; test "$$(cat $$i | LANG=C time ./pareceive - 2> >(tee >(cat 1>&2)) | grep "\(Playing\|Using\)" | tr '\n' ' ' | sed -e 's/ $$//'; echo " $${PIPESTATUS[1]}")" == "$$(cat $$i.txt) 0" || exit 1; done
 	@echo -e "\ncat tests/random.sdf tests/zero.sdf tests/classical_4_a1.sdf | ./pareceive -"; OUTPUT="$$(cat tests/random.sdf tests/zero.sdf tests/classical_4_a1.sdf | LANG=C time ./pareceive - 2> >(tee >(cat 1>&2)); echo "Exit code $$?")"; test "$$(echo "$$OUTPUT" | grep "Playing" | tr '\n' ' ')" == "Playing PCM Playing silence Playing IEC61937: Audio: ac3, 48000 Hz, mono, fltp, 64 kb/s " || exit 1; test "$$(echo "$$OUTPUT" | grep "Using" | tr '\n' ' ')" == "Using sample spec 's16le 2ch 48000Hz', channel map 'front-left,front-right'. Using sample spec 'float32le 1ch 48000Hz', channel map 'front-center'. " || exit 1; test "$$(echo "$$OUTPUT" | grep "Exit code")" == "Exit code 0" || exit 1
 	@echo -e "\ndd if=/dev/urandom bs=1024 count=\$$((1024*96*4)) | ./pareceive -"; read LATENCY STATUS <<< $$(dd if=/dev/urandom bs=1024 count=$$((1024*96*4)) | LANG=C time ./pareceive - 2> >(tee >(cat 1>&2)) | grep "Output stream latency" | sed -e 's/Output stream latency \([-0-9]*\) usec/\1/' | tr '\n' ' '; echo "$${PIPESTATUS[1]}"); test "$$STATUS" == "0" || exit $${STATUS:-1}; test "$$LATENCY" -lt 41667 || echo "Warning: PCM latency is too high ($$((($$LATENCY+500)/1000)) ms)"
