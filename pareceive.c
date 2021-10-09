@@ -1220,7 +1220,7 @@ int main(int argc, char *argv[])
 	char *server = NULL;
 	unsigned long type = 0;
 
-	if(argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")))
+	if((argc > 1 && (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h"))) || argc > 4)
 	{
 		printf("Usage: %s [indevice [outdevice [server]]]\nTo use stdin as input, use - as indevice\n", argv[0]);
 		return 0;
