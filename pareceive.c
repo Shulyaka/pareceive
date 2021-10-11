@@ -158,7 +158,7 @@ static void stream_timing_complete(pa_stream *s, int success, void *userdata)
 		int negative;
 		int r;
 		if(!(r=pa_stream_get_latency(s, &r_usec, &negative)))
-			fprintf(stderr, "%s stream latency %s%ld usec\n", (s==instream?"Input":"Output"), (negative?"-":""), r_usec);
+			fprintf(stderr, "%s stream latency %s%zu usec\n", (s==instream?"Input":"Output"), (negative?"-":""), (size_t)r_usec);
 		else
 			fprintf(stderr, "pa_stream_get_latency=%d\n", r);
 	}
@@ -578,7 +578,7 @@ void open_output_stream(void)
 		}
 	}
 
-	fprintf(stderr, "Setting target output latency to %ld usec (%u bytes)\n", pa_bytes_to_usec(tlength, &out_sample_spec), tlength);
+	fprintf(stderr, "Setting target output latency to %zu usec (%u bytes)\n", (size_t)pa_bytes_to_usec(tlength, &out_sample_spec), tlength);
 
 	buffer_attr.fragsize = (uint32_t) -1;
 	buffer_attr.maxlength = (uint32_t) -1;
@@ -654,7 +654,7 @@ void print_averror(const char *str, int err)
 
 void set_instream_fragsize(uint32_t fragsize)
 {
-	fprintf(stderr, "Setting target input latency to %ld usec (%u bytes)\n", pa_bytes_to_usec(fragsize, &in_sample_spec), fragsize);
+	fprintf(stderr, "Setting target input latency to %zu usec (%u bytes)\n", (size_t)pa_bytes_to_usec(fragsize, &in_sample_spec), fragsize);
 	if(instream)
 	{
 		pa_buffer_attr buffer_attr;
@@ -1198,7 +1198,7 @@ static void sigusr1_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int 
 	}
 	else
 	{
-		fprintf(stderr, "Input stream latency %ld usec\n", pa_bytes_to_usec(stdin_fragsize, &in_sample_spec));
+		fprintf(stderr, "Input stream latency %zu usec\n", (size_t)pa_bytes_to_usec(stdin_fragsize, &in_sample_spec));
 	}
 
 	if(outstream)
@@ -1215,8 +1215,8 @@ static void sigusr1_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int 
 
 	if(verbose)
 	{
-		fprintf(stderr, "Input buffer %ld usec\n", pa_bytes_to_usec(inbuffer_length, &in_sample_spec));
-		fprintf(stderr, "Output buffer %ld usec\n", (outstream?pa_bytes_to_usec(outbuffer_length, &out_sample_spec):0));
+		fprintf(stderr, "Input buffer %zu usec\n", (size_t)pa_bytes_to_usec(inbuffer_length, &in_sample_spec));
+		fprintf(stderr, "Output buffer %zu usec\n", (size_t)(outstream?pa_bytes_to_usec(outbuffer_length, &out_sample_spec):0));
 	}
 }
 
