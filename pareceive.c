@@ -578,6 +578,8 @@ void open_output_stream(void)
 		}
 	}
 
+	fprintf(stderr, "Setting target output latency to %ld usec (%u bytes)\n", pa_bytes_to_usec(tlength, &out_sample_spec), tlength);
+
 	buffer_attr.fragsize = (uint32_t) -1;
 	buffer_attr.maxlength = (uint32_t) -1;
 	buffer_attr.minreq = (uint32_t) -1;
@@ -652,6 +654,7 @@ void print_averror(const char *str, int err)
 
 void set_instream_fragsize(uint32_t fragsize)
 {
+	fprintf(stderr, "Setting target input latency to %ld usec (%u bytes)\n", pa_bytes_to_usec(fragsize, &in_sample_spec), fragsize);
 	if(instream)
 	{
 		pa_buffer_attr buffer_attr;
@@ -1192,6 +1195,10 @@ static void sigusr1_signal_callback(pa_mainloop_api *m, pa_signal_event *e, int 
 		}
 
 		pa_operation_unref(o);
+	}
+	else
+	{
+		fprintf(stderr, "Input stream latency %ld usec\n", pa_bytes_to_usec(stdin_fragsize, &in_sample_spec));
 	}
 
 	if(outstream)
