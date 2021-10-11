@@ -1233,6 +1233,15 @@ int main(int argc, char *argv[])
 		return 0;
 	}
 
+	if(argc > 1 && (!strcmp(argv[1], "--version") || !strcmp(argv[1], "-v")))
+	{
+#ifndef _GIT_REV
+#define _GIT_REV "unknown"
+#endif
+		printf("%s rev. %s\n", argv[0], _GIT_REV);
+		return 0;
+	}
+
 	if(argc > 1)
 		indevice = argv[1];
 
