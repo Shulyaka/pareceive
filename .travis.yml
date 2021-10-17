@@ -36,6 +36,6 @@ before_install:
   - test "$COVERAGE" = "Y" && pip install --user cpp-coveralls || echo "Coveralls reporting skipped"
 before_script:
   - pulseaudio --version
-  - dbus-launch pulseaudio --start
+  - dbus-launch pulseaudio --start || pulseaudio --start
 after_success:
   - test "$COVERAGE" = "Y" && coveralls --exclude /usr/include/ || echo "Coveralls reporting skipped"
