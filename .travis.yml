@@ -13,12 +13,18 @@ addons:
 jobs:
   include:
     - compiler: gcc
+      arch: amd64
       env:
         - COMPILER=gcc
         - COVERAGE=${COVERALLS_REPO_TOKEN:+Y}
     - compiler: clang
+      arch: amd64
       env:
         - COMPILER=clang
+    - compiler: gcc
+      arch: arm64
+      env:
+        - COMPILER=gcc
 env:
   global:
     - CFLAGS="$CFLAGS${CFLAGS:+ }-Werror"
