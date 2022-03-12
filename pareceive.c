@@ -959,6 +959,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 		{
 			pcount++;
 			int ret = avcodec_send_packet(avcodeccontext, pkt);
+			av_packet_unref(pkt);
 			if(ret<0)
 			{
 				print_averror("avcodec_send_packet", ret);
