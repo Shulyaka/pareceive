@@ -710,6 +710,7 @@ void set_state(enum state newstate)
 				avformat_close_input(&avformatcontext);
 				avcodec_free_context(&avcodeccontext);
 				swr_free(&swrcontext);
+				avformat_free_context(avformatcontext);
 				avformatcontext = NULL;
 				out_bytes_per_sample = 4;
 			}
