@@ -8,6 +8,7 @@
 #include "libavformat/avio.h"
 #include "libavformat/avformat.h"
 #include "libswresample/swresample.h"
+#include "libavcodec/avcodec.h"
 
 static char *indevice = NULL;
 static char *outdevice = NULL;
@@ -899,7 +900,7 @@ static void decode_data(const void *data, size_t length, void *userdata)
 
 			//av_dump_format(avformatcontext, 0, input_device_name, 0);
 
-			AVCodec *dec = NULL;
+			const AVCodec *dec = NULL;
 			int stream_index = av_find_best_stream(avformatcontext, AVMEDIA_TYPE_AUDIO, -1, -1, &dec, 0);
 
 			if(stream_index < 0)
