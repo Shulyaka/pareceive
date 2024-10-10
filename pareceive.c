@@ -587,12 +587,21 @@ void open_output_stream(void)
 	buffer_attr.prebuf = (uint32_t) -1;
 	buffer_attr.tlength = tlength;
 
-	if (!(outstream = pa_stream_new(context, "pareceive output stream", &out_sample_spec, &out_channel_map)))
-	{
-		fprintf(stderr, "pa_stream_new() failed: %s\n", pa_strerror(pa_context_errno(context)));
+	pa_proplist *proplist = pa_proplist_new();
+	if (!proplist) {
+		fprintf(stderr, "pa_proplist_new() failed\n");
 		quit(1);
-		return;
 	}
+
+	pa_proplist_sets(proplist, PA_PROP_MEDIA_ROLE, "video");
+
+	if (!(outstream = pa_stream_new_with_proplist(context, "pareceive output stream", &out_sample_spec, &out_channel_map, proplist)))
+	{
+		fprintf(stderr, "pa_stream_new_with_proplist() failed: %s\n", pa_strerror(pa_context_errno(context)));
+		quit(1);
+	}
+
+	pa_proplist_free(proplist);
 
 	pa_stream_set_state_callback(outstream, stream_state_callback, NULL);
 	pa_stream_set_write_callback(outstream, stream_write_callback, NULL);
