@@ -450,94 +450,100 @@ enum pa_sample_format map_sample_format(enum AVSampleFormat format)
 	return PA_SAMPLE_INVALID;
 }
 
-void map_channel_layout(pa_channel_map* channel_map, uint64_t channel_layout)
+void map_channel_layout(pa_channel_map* channel_map, AVChannelLayout* channel_layout)
 {
 	pa_channel_map_init(channel_map);
-	channel_map->channels = av_get_channel_layout_nb_channels(channel_layout);
+	channel_map->channels = channel_layout->nb_channels;
 
 	int i;
 	for(i = 0; i < channel_map->channels; i++)
 	{
-		switch(av_channel_layout_extract_channel(channel_layout, i))
+		switch(av_channel_layout_channel_from_index(channel_layout, i))
 		{
-			case AV_CH_FRONT_LEFT:
+			case AV_CHAN_FRONT_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_LEFT;
 				break;
-			case AV_CH_FRONT_RIGHT:
+			case AV_CHAN_FRONT_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_RIGHT;
 				break;
-			case AV_CH_FRONT_CENTER:
+			case AV_CHAN_FRONT_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_CENTER;
 				break;
-			case AV_CH_LOW_FREQUENCY:
+			case AV_CHAN_LOW_FREQUENCY:
 				channel_map->map[i] = PA_CHANNEL_POSITION_LFE;
 				break;
-			case AV_CH_BACK_LEFT:
+			case AV_CHAN_BACK_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_REAR_LEFT;
 				break;
-			case AV_CH_BACK_RIGHT:
+			case AV_CHAN_BACK_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_REAR_RIGHT;
 				break;
-			case AV_CH_FRONT_LEFT_OF_CENTER:
+			case AV_CHAN_FRONT_LEFT_OF_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_LEFT_OF_CENTER;
 				break;
-			case AV_CH_FRONT_RIGHT_OF_CENTER:
+			case AV_CHAN_FRONT_RIGHT_OF_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_RIGHT_OF_CENTER;
 				break;
-			case AV_CH_BACK_CENTER:
+			case AV_CHAN_BACK_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_REAR_CENTER;
 				break;
-			case AV_CH_SIDE_LEFT:
+			case AV_CHAN_SIDE_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_LEFT;
 				break;
-			case AV_CH_SIDE_RIGHT:
+			case AV_CHAN_SIDE_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_RIGHT;
 				break;
-			case AV_CH_TOP_CENTER:
+			case AV_CHAN_TOP_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_CENTER;
 				break;
-			case AV_CH_TOP_FRONT_LEFT:
+			case AV_CHAN_TOP_FRONT_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_FRONT_LEFT;
 				break;
-			case AV_CH_TOP_FRONT_CENTER:
+			case AV_CHAN_TOP_FRONT_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_FRONT_CENTER;
 				break;
-			case AV_CH_TOP_FRONT_RIGHT:
+			case AV_CHAN_TOP_FRONT_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_FRONT_RIGHT;
 				break;
-			case AV_CH_TOP_BACK_LEFT:
+			case AV_CHAN_TOP_BACK_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_REAR_LEFT;
 				break;
-			case AV_CH_TOP_BACK_CENTER:
+			case AV_CHAN_TOP_BACK_CENTER:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_REAR_CENTER;
 				break;
-			case AV_CH_TOP_BACK_RIGHT:
+			case AV_CHAN_TOP_BACK_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_TOP_REAR_RIGHT;
 				break;
-			case AV_CH_STEREO_LEFT: //Stereo downmix
+			case AV_CHAN_STEREO_LEFT: //Stereo downmix
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_LEFT;
 				break;
-			case AV_CH_STEREO_RIGHT: //See AV_CH_STEREO_LEFT
+			case AV_CHAN_STEREO_RIGHT: //See AV_CHAN_STEREO_LEFT
 				channel_map->map[i] = PA_CHANNEL_POSITION_FRONT_RIGHT;
 				break;
-			case AV_CH_WIDE_LEFT: // PA does not have wide speakers, so map them to side instead. If both of your setup and source have both wide and side speakers, you may want to change this to PA_CHANNEL_POSITION_AUX*. And if this is the case, please also send me a postcard.
+			case AV_CHAN_WIDE_LEFT: // PA does not have wide speakers, so map them to side instead. If both of your setup and source have both wide and side speakers, you may want to change this to PA_CHANNEL_POSITION_AUX*. And if this is the case, please also send me a postcard.
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_LEFT;
 				break;
-			case AV_CH_WIDE_RIGHT:
+			case AV_CHAN_WIDE_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_RIGHT;
 				break;
-			case AV_CH_SURROUND_DIRECT_LEFT:
+			case AV_CHAN_SURROUND_DIRECT_LEFT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_LEFT;
 				break;
-			case AV_CH_SURROUND_DIRECT_RIGHT:
+			case AV_CHAN_SURROUND_DIRECT_RIGHT:
 				channel_map->map[i] = PA_CHANNEL_POSITION_SIDE_RIGHT;
 				break;
-			case AV_CH_LOW_FREQUENCY_2:
+			case AV_CHAN_LOW_FREQUENCY_2:
 				channel_map->map[i] = PA_CHANNEL_POSITION_LFE;
 				break;
 
 			default:
-				fprintf(stderr, "Unexpected channel position %s\n", av_get_channel_description(av_channel_layout_extract_channel(channel_layout, i)));
+				char channel_name[256];
+				char channel_layout_name[256];
+				if (av_channel_name(channel_name, sizeof(channel_name), av_channel_layout_channel_from_index(channel_layout, i)) >= sizeof(channel_name))
+					sprintf(channel_name, "Unknown");
+				if (av_channel_layout_describe(channel_layout, channel_layout_name, sizeof(channel_layout_name)) >= sizeof(channel_layout_name))
+					sprintf(channel_layout_name, "Unknown");
+				fprintf(stderr, "Unexpected channel %d position %s for layout %s\n", i, channel_name, channel_layout_name);
 				channel_map->map[i] = PA_CHANNEL_POSITION_INVALID;
 		}
 	}
@@ -555,8 +561,8 @@ void open_output_stream(void)
 	{
 		out_sample_spec.format = map_sample_format(swroutformat);
 		out_sample_spec.rate = avcodeccontext->sample_rate;
-		out_sample_spec.channels = avcodeccontext->channels;
-		map_channel_layout(&out_channel_map, avcodeccontext->channel_layout);
+		map_channel_layout(&out_channel_map, &avcodeccontext->ch_layout);
+		out_sample_spec.channels = out_channel_map.channels;
 		tlength = avformatcontext->pb->buffer_size / 4 * out_bytes_per_sample * 2;
 	}
 	else
@@ -936,17 +942,23 @@ static void decode_data(const void *data, size_t length, void *userdata)
 			swroutformat = av_get_packed_sample_fmt(avcodeccontext->sample_fmt);
 			if(swroutformat == AV_SAMPLE_FMT_DBL)
 				swroutformat = AV_SAMPLE_FMT_FLT;
-			swrcontext = swr_alloc_set_opts(swrcontext,
-											avcodeccontext->channel_layout,
+			if ((i = swr_alloc_set_opts2(&swrcontext,
+											&avcodeccontext->ch_layout,
 											swroutformat,
 											avcodeccontext->sample_rate,
-											avcodeccontext->channel_layout,
+											&avcodeccontext->ch_layout,
 											avcodeccontext->sample_fmt,
 											avcodeccontext->sample_rate,
-											0, NULL);
+											0, NULL)) < 0)
+			{
+				print_averror("swr_alloc_set_opts2", i);
+				fprintf(stderr, "Playing silence\n");
+				set_state(NOSIGNAL);
+				return;
+			}
 			swr_init(swrcontext);
 
-			out_bytes_per_sample = av_get_bytes_per_sample(swroutformat) * (size_t)avcodeccontext->channels;
+			out_bytes_per_sample = av_get_bytes_per_sample(swroutformat) * (size_t)avcodeccontext->ch_layout.nb_channels;
 
 			pkt->data = NULL;
 			pkt->size = 0;
